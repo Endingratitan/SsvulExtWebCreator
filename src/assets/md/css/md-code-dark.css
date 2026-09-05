@@ -1,0 +1,13 @@
+/* 深色主题变量覆盖（作者经 deps 引入；[data-theme=dark] 时生效） */
+[data-theme="dark"] {
+  --md-code-bg: #282c34;  --md-code-fg: #abb2bf;
+  --md-code-kw: #c678dd;  --md-code-str: #98c379;  --md-code-num: #d19a66;
+  --md-code-com: #5c6370; --md-code-fn: #61afef;   --md-code-fndef: #61afef;
+  --md-code-cls: #e5c07b; --md-code-type: #e5c07b; --md-code-enum: #e5c07b;
+  --md-code-iface: #56b6c2; --md-code-builtin: #56b6c2; --md-code-const: #d19a66;
+  --md-code-var: #e06c75; --md-code-field: #e06c75; --md-code-fieldstatic: #e06c75;
+  --md-code-local: #e06c75; --md-code-param: #e06c75; --md-code-attr: #d19a66;
+  --md-code-prop: #d19a66; --md-code-tag: #e06c75;  --md-code-sel: #e06c75;
+  --md-code-meta: #61afef; --md-code-op: #abb2bf;  --md-code-punct: #abb2bf;
+  --md-code-tpl: #e5c07b; --md-code-regex: #98c379;
+}

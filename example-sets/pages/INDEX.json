@@ -1,0 +1,21 @@
+{
+  "name": "INDEX",
+  "theme": "dark",
+  "deps": [
+    "pre-assets/lib/katex/katex.min.css",
+    "pre-assets/lib/katex/katex.min.js",
+    "pre-assets/lib/hljs/hljs.min.js",
+    "pre-assets/md/css/md-code-dark.css"
+  ],
+  "md-js": [
+    "pre-assets/md/js/token-map.js",
+    "pre-assets/md/js/md-math.js",
+    "pre-assets/md/js/md-highlight.js"
+  ],
+  "page": {
+    "div-1": { "type": "navbar", "params": { "brand": "Ssvul" } },
+    "div-2": { "type": "article", "params": { "title": "示例" },
+      "markdown": "# 示例\n\n价格 \\$5 与数学 $x^2$，按键 [[Ctrl]]+[[C]]\n\n```java\nint x = 1;\n```\n\n[博文](@page/blog/post) ![图](bk/img/logo.png)" },
+    "div-3": { "type": "theme-switcher", "params": { "themes": "light,dark", "labels": "亮,暗" } }
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SsvulExtWebCreator 页面配置文件",
+  "description": "sets/pages/ 下的网页 json 配置规则（v1 草案）。未知键一律报错。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["page"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "页面名（kebab-case），缺省时用 json 文件名；生成 pages/<structures...>/<name>/index.html；INDEX.json 特例允许 INDEX",
+      "anyOf": [
+        { "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        { "const": "INDEX" }
+      ]
+    },
+    "title": { "type": "string", "description": "<title> 内容（可选）" },
+    "lang": { "type": "string", "description": "<html lang>，默认 zh-CN（可选）" },
+    "description": { "type": "string", "description": "<meta name=\"description\">（可选）" },
+    "favicon": {
+      "type": "string",
+      "description": "页面 favicon 地址：http(s):// 外源、pre-assets/... 预设、@favicon/文件名（sets/favicon/ 下）、或 bucket 调用名路径（如 bk/favicon.ico）"
+    },
+    "head": {
+      "type": "array",
+      "description": "追加进 <head> 的原生 HTML 片段（可选）",
+      "items": { "type": "string" }
+    },
+    "theme": {
+      "type": "string",
+      "description": "初始主题名（如 light/dark）；生成 data-theme 属性 + 防闪烁内联脚本，并自动引用 pre-assets/md/js/md-theme.js 预设"
+    },
+    "md-css": {
+      "type": "string",
+      "description": "md 主题 css（pre-assets/、bk/、http(s):// 形态）；缺省用预设 pre-assets/md/css/md.css；页面无 md 内容时忽略"
+    },
+    "md-js": {
+      "type": "array",
+      "description": "md 增强 js 列表（pre-assets/ 或 http(s)://），顺序保序；仅页面含 md 内容时注入",
+      "items": { "type": "string" }
+    },
+    "deps": {
+      "type": "array",
+      "description": "页面依赖：http(s):// 外源；pre-assets/ 官方预设；global:<type> 显式引用 .global div。本地 js/css 一律走 divs（三态）或 pre-assets；sets/data/ 只存数据（json/md/图片等），禁止 js/css（生成器扫描报错）",
+      "items": { "$ref": "#/definitions/dep" }
+    },
+    "page": { "$ref": "#/definitions/divGroup" }
+  },
+  "definitions": {
+    "dep": {
+      "type": "string",
+      "anyOf": [
+        { "pattern": "^https?://.+", "description": "外源 URL" },
+        { "pattern": "^pre-assets/.+", "description": "官方预设（对应 src/assets/）" },
+        { "pattern": "^global:[a-z0-9]+(-[a-z0-9]+)*(/[a-z0-9]+(-[a-z0-9]+)*)?$", "description": "显式引用 .global div 的 js/css（如 global:navbar）" }
+      ]
+    },
+    "divGroup": {
+      "type": "object",
+      "description": "div 组合：键名为 div-ID（正整数 ID）；组装顺序按 ID 数值升序，允许跳号，同页重复 ID 报错（解析层 STRICT_DUPLICATE_DETECTION 抓重复键）",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^div-[1-9][0-9]*$": { "$ref": "#/definitions/div" }
+      }
+    },
+    "div": {
+      "type": "object",
+      "description": "单个 div 实例。type 对应 sets/divs/ 下目录（categories=1 时写作 category/divname），未命中回落 src/assets/divs/",
+      "additionalProperties": false,
+      "required": ["type"],
+      "not": { "required": ["raw", "markdown"] },
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "div 类型（kebab-case，可选 category/ 前缀）",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*(/[a-z0-9]+(-[a-z0-9]+)*)?$"
+        },
+        "params": {
+          "type": "object",
+          "description": "注入模板 {{key}} 占位符，并渲染为根元素 data-key 属性；键名禁止 content/children（系统占位符保留字）",
+          "additionalProperties": { "type": ["string", "number", "boolean"] },
+          "propertyNames": { "not": { "enum": ["content", "children"] } }
+        },
+        "markdown": {
+          "type": "string",
+          "description": "内联 md 文本；或以 @ 开头引用 md 文件（@pages/...、@data/...）。转 html 后注入模板 {{content}} 处。md 内链接/图片白名单：http(s)://、bk/、pre-assets/、@data/、@page/（站内互链）、#锚点"
+        },
+        "attrs": {
+          "type": "object",
+          "description": "注入 div 根元素的原生属性，值必须为字符串；class 会并入默认类 ssvul-<type>；id 由 div-ID 专属，禁止出现",
+          "additionalProperties": { "type": "string" },
+          "not": { "required": ["id"] }
+        },
+        "raw": {
+          "type": "string",
+          "description": "任意 HTML 片段，注入 {{content}} 处（与 markdown 二选一）"
+        },
+        "divs": {
+          "$ref": "#/definitions/divGroup",
+          "description": "嵌套子组合（同 div-ID 规则）；渲染进父模板 {{children}} 处，无模板则追加在父 div 末尾"
+        }
+      }
+    }
+  }
+}
