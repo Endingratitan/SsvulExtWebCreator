@@ -40,13 +40,25 @@
       "items": { "type": "string" }
     },
     "md-options": {
+      "$ref": "#/definitions/mdOptions",
+      "description": "页面级 md 渲染选项（全部有默认值，可不写整个键或任一子键）"
+    },
+    "engine": {
+      "anyOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ],
+      "description": "代码高亮引擎（有序链，默认 hljs）：hljs=客户端上色（自动注入 hljs.min.js/token-map.js/md-highlight.js，仅页面含带语言的代码块时）；simple=构建期词法（零客户端脚本，内置 java/javascript/python/c/cpp/bash/html 词表）；数组=按序问询各引擎 accepts(lang)，全员拒接→纯文本+警告；未知名忽略+警告"
+    },
+    "code-ui": {
       "type": "object",
-      "description": "md 渲染选项（全部有默认值，可不写整个键或任一子键）",
+      "description": "代码块外壳定制（全部默认关/缺省）：items 数组声明块内元素（顺序=DOM 顺序；内置 lang-label/mac-dots/copy-btn；未知名警告跳过并保留在 data-items，可由站点 CODEUI.js 实现）；bg=背景图（pre-assets/、bk/、http(s)://）；rounded=圆角（半径变量 --codeui-radius）；label-pos=角标位置（copy 固定右上，tr 冲突时角标自动让位）",
       "additionalProperties": false,
       "properties": {
-        "mode": { "type": "string", "enum": ["simple", "strict"], "description": "simple=GitHub 兼容（默认）；strict=严格报错" },
-        "footnote-display": { "type": "string", "enum": ["end", "inline"], "description": "end=脚注统一放（文末或 {{footnotes}} 占位符，默认）；inline=就地显示在定义处" },
-        "toc": { "type": "boolean", "description": "构建期生成目录（md-body 顶部；h2~h6 入目录，h1 排除；默认 false）" }
+        "items": { "type": "array", "items": { "type": "string" } },
+        "bg": { "type": "string" },
+        "rounded": { "type": "boolean" },
+        "label-pos": { "type": "string", "enum": ["tr", "tl", "br", "bl"] }
       }
     },
     "deps": {
@@ -57,6 +69,16 @@
     "page": { "$ref": "#/definitions/divGroup" }
   },
   "definitions": {
+    "mdOptions": {
+      "type": "object",
+      "description": "md 渲染选项（全部有默认值，可不写整个键或任一子键）。div 级写法与此同构：级联覆盖（只覆盖写出的键，其余继承页面级/父 div）",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string", "enum": ["simple", "strict"], "description": "simple=GitHub 兼容（默认）；strict=严格报错" },
+        "footnote-display": { "type": "string", "enum": ["end", "inline"], "description": "end=脚注统一放（文末或 {{footnotes}} 占位符，默认）；inline=就地显示在定义处" },
+        "toc": { "type": "boolean", "description": "构建期生成目录（md-body 顶部；h2~h6 入目录，h1 排除；默认 false）" }
+      }
+    },
     "dep": {
       "type": "string",
       "anyOf": [
@@ -94,6 +116,10 @@
         "markdown": {
           "type": "string",
           "description": "内联 md 文本；或以 @ 开头引用 md 文件（@pages/...、@data/...）。转 html 后注入模板 {{content}} 处。md 内链接/图片白名单：http(s)://、bk/、pre-assets/、@data/、@page/（站内互链）、#锚点"
+        },
+        "md-options": {
+          "$ref": "#/definitions/mdOptions",
+          "description": "本 div 的 md 渲染选项（可选）：级联覆盖页面级/父 div 的同名键，只作用于本 div 的 markdown；标题锚点 id 自动加本 div-ID 前缀（如 div-1-s1）"
         },
         "attrs": {
           "type": "object",

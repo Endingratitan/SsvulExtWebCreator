@@ -2,20 +2,22 @@
   "name": "INDEX",
   "theme": "dark",
   "md-options": { "toc": true },
+  "engine": "simple",
+  "code-ui": { "items": ["lang-label", "mac-dots", "copy-btn"], "rounded": true, "label-pos": "tr" },
   "deps": [
     "pre-assets/lib/katex/katex.min.css",
-    "pre-assets/lib/katex/katex.min.js",
-    "pre-assets/lib/hljs/hljs.min.js"
+    "pre-assets/lib/katex/katex.min.js"
   ],
   "md-js": [
-    "pre-assets/md/js/token-map.js",
-    "pre-assets/md/js/md-math.js",
-    "pre-assets/md/js/md-highlight.js"
+    "pre-assets/md/js/md-math.js"
   ],
   "page": {
     "div-1": { "type": "navbar", "params": { "brand": "Ssvul" } },
     "div-2": { "type": "article", "params": { "title": "示例" },
-      "markdown": "# 示例\n\n## 小节一\n\n价格 \\$5 与数学 $x^2$，按键 [[Ctrl]]+[[C]]\n\n## 小节二\n\n| a | b |\n|---|---|\n|1|2|\n\n```java\nint x = 1;\n```\n\n注释[^1]与自动[^.]。\n\n[^1]: 显式注\n[.^]: 懒惰注\n\n![bucket图](bk/img/logo.png)\n\n[标题锚点](#s1) [博文](@page/blog/post) ![图](@data/img/logo.png)" },
-    "div-3": { "type": "theme-switcher", "params": { "themes": "light,dark", "labels": "亮,暗" } }
+      "markdown": "# 示例\n\n## 小节一\n\n这是一段**加粗**、*斜体*、~~删除~~、`行内代码`与 \\ 转义混合的长正文，用来撑起更多文本量检验排版：段落、行内标记与自动换行在长文本下的表现。\n\n价格 \\$5 与数学 $x^2$，按键 [[Ctrl]]+[[C]]，自动链接 <https://example.com>。\n\nLaTeX 原生定界符：\\(a+b\\) 与块级\n\n\\[\na+b\n\\]\n\n$$\nE = mc^2\n$$\n\n## 小节二\n\n> 引用第一层：块引用渲染演示。\n> > 引用第二层：递归一层。\n>\n> 引用继续。\n\n- 无序列表项\n- 任务列表\n  - [x] 已完成\n  - [ ] 未完成\n    - 第三层嵌套（simple 放行，strict 报错）\n\n1. 有序列表\n2. 第二项\n\n---\n\n+++\n\n| 左对齐 | 居中 | 右对齐 |\n|:---|:---:|---:|\n| 甲 | 乙 | 丙 |\n| 1 | 2 | 3 |\n| 长内容格 | 内容 | 内容 |\n\n```java\nint x = 1;\nSystem.out.println(\"hello\");\n```\n\n```python\ndef greet(name):\n    return f\"hi, {name}\"  # 注释\n```\n\n```bash\necho $HOME\n```\n\n行内脚注[^1]与自动编号[^.]，再引用一次[^1]。\n\n[^1]: 显式注\n[.^]: 懒惰注\n\n![bucket图](bk/img/logo.png)\n\n[标题锚点](#div-2-s1) [博文](@page/blog/post) [引擎演示](@page/engine-demo) [严格模式](@page/strict-demo) [指南](@page/docs/guide) ![图](@data/img/logo.png)" },
+    "div-3": { "type": "theme-switcher", "params": { "themes": "light,dark", "labels": "亮,暗" } },
+    "div-4": { "type": "article", "params": { "title": "div 级个性化" },
+      "md-options": { "footnote-display": "inline" },
+      "markdown": "# div 级个性化\n\n## 级联\n\n页面级 toc 被继承（本块也生成目录），脚注就地显示[^1]。\n\n[^1]: 就地注" }
   }
 }

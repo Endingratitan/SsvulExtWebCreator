@@ -1,0 +1,9 @@
+# 注释
+module:kw
+wire:builtin
+reg:builtin
+assign:kw
+always:kw
+posedge:builtin
+negedge:builtin
+endmodule:kw

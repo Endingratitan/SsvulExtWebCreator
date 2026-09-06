@@ -236,4 +236,32 @@ class SiteScan {
             sb.outerFiles.put(rel + f.getName(), f);   // 键 = "调用名/相对路径"
         }
     }
+
+    // ==================== global（全局域，如 codeui） ====================
+
+    void scanGlobal() {
+        File root = new File(sb.setsDir, "global");
+        if (!root.isDirectory()) return;
+        for (File d : SiteBuilder.sortedDirs(root)) {
+            if (d.getName().equals("codeui")) {
+                for (File f : SiteBuilder.sortedFiles(d)) {
+                    String n = f.getName();
+                    if (n.equals("CODEUI.css") || n.equals("CODEUI.js")) {
+                        sb.codeuiFiles.put(n, f);
+                    } else {
+                        sb.errors.add("sets/global/codeui 仅允许 CODEUI.css/CODEUI.js: " + n);
+                    }
+                }
+            } else {
+                sb.warn("sets/global/ 未知域（预留，已忽略）: " + d.getName());
+            }
+        }
+        sb.codeuiCssExists = sb.codeuiFiles.containsKey("CODEUI.css");
+        sb.codeuiJsExists = sb.codeuiFiles.containsKey("CODEUI.js");
+        // 站点级文件复制进 output/assets/global/codeui/（文本：内部 pre-assets/@data 引用可被替换趟处理）
+        for (Map.Entry<String, File> e : sb.codeuiFiles.entrySet()) {
+            sb.queue.add(new SiteBuilder.Queued(
+                    new File(sb.outputDir, "assets/global/codeui/" + e.getKey()), sb.readFile(e.getValue()), 3));
+        }
+    }
 }

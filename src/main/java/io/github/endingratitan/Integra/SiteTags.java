@@ -25,8 +25,13 @@ class SiteTags {
 
     String buildLinks(JsonNode root, boolean hasMd, int depth) {
         StringBuilder sb2 = new StringBuilder();
+        Set<String> seen = new LinkedHashSet<>();
         JsonNode deps = root.path("deps");
-        if (deps.isArray()) for (JsonNode d : deps) sb2.append(depTag(d.asText(), depth, true));
+        if (deps.isArray()) for (JsonNode d : deps) {
+            String s = d.asText();
+            if (!seen.add(s)) { sb.warn("deps 重复条目已去重: " + s); continue; }
+            sb2.append(depTag(s, depth, true));
+        }
         if (hasMd) {
             String mc = root.path("md-css").asText("");
             if (mc.isEmpty()) mc = "pre-assets/md/css/md.css";
@@ -41,18 +46,34 @@ class SiteTags {
             }
         }
         if (sb.webGlobalCss) sb2.append("  <link rel=\"stylesheet\" href=\"").append(SiteBuilder.depthPrefix(depth)).append("assets/css/web_global.css\">\n");
+        // 站点级 CODEUI.css：存在 + 本页有代码块才注入（顺序在主题 css 之后，便于覆盖）
+        if (sb.injectCodeuiCss) {
+            sb2.append("  <link rel=\"stylesheet\" href=\"").append(SiteBuilder.depthPrefix(depth))
+               .append("assets/global/codeui/CODEUI.css\">\n");
+        }
         return sb2.toString();
     }
 
     String buildScripts(JsonNode root, int depth, boolean hasPageJs, boolean themeActive,
                         boolean indexPage, String name) {
         StringBuilder sb2 = new StringBuilder();
-        if (sb.webGlobalJs) sb2.append("  <script src=\"").append(SiteBuilder.depthPrefix(depth)).append("assets/js/web_global.js\"></script>\n");
+        if (sb.webGlobalJs) sb2.append("  <script src=\"").append(SiteBuilder.depthPrefix(depth)).append("assets/js/web_global").append(sb.jsSuffix()).append("\"></script>\n");
         JsonNode deps = root.path("deps");
-        if (deps.isArray()) for (JsonNode d : deps) sb2.append(depTag(d.asText(), depth, false));
+        if (deps.isArray()) {
+            Set<String> seenDeps = new LinkedHashSet<>();
+            for (JsonNode d : deps) {
+                String s = d.asText();
+                if (!seenDeps.add(s)) { sb.warn("deps 重复条目已去重: " + s); continue; }
+                sb2.append(depTag(s, depth, false));
+            }
+        }
         List<String> mdJs = new ArrayList<>();
         JsonNode mj = root.path("md-js");
-        if (mj.isArray()) for (JsonNode d : mj) mdJs.add(d.asText());
+        if (mj.isArray()) for (JsonNode d : mj) {
+            String s = d.asText();
+            if (mdJs.contains(s)) { sb.warn("md-js 重复条目已去重: " + s); continue; }
+            mdJs.add(s);
+        }
         if (themeActive && !mdJs.contains("pre-assets/md/js/md-theme.js")) mdJs.add("pre-assets/md/js/md-theme.js");
         for (String s : mdJs) {
             if (s.startsWith("pre-assets/")) {
@@ -66,8 +87,33 @@ class SiteTags {
                 sb.errors.add("md-js 条目形态不合法: " + s);
             }
         }
+        // 引擎自动资源（hljs 三件套等）：性能门控后注入；与用户 md-js 重复 → 警告并跳过
+        for (String a : sb.engineAssets) {
+            if (mdJs.contains(a)) {
+                sb.warn("md-js 与 engine 自动资源重复，已跳过手写项: " + a);
+                continue;
+            }
+            if (a.startsWith("pre-assets/")) {
+                String suffix = a.substring("pre-assets/".length());
+                sb.refPreset(suffix);
+                sb2.append("  <script src=\"").append(SiteBuilder.depthPrefix(depth)).append("assets/pre/")
+                  .append(suffix).append("\"></script>\n");
+            } else {
+                sb.errors.add("engine 自动资源形态不合法: " + a);
+            }
+        }
+        // copy-btn 内置行为预设（仅 code-ui items 含 copy-btn 且本页有代码块）
+        if (sb.copyJsNeeded) {
+            sb.refPreset("md/js/md-copy.js");
+            sb2.append("  <script src=\"").append(SiteBuilder.depthPrefix(depth)).append("assets/pre/md/js/md-copy.js\"></script>\n");
+        }
+        // 站点级 CODEUI.js：存在 + 本页有代码块；最后注入（引擎/内置脚本先执行，用户可覆盖与挂事件）
+        if (sb.injectCodeuiJs) {
+            sb2.append("  <script src=\"").append(SiteBuilder.depthPrefix(depth))
+               .append("assets/global/codeui/CODEUI.js\"></script>\n");
+        }
         if (hasPageJs) {
-            String src = indexPage ? SiteBuilder.depthPrefix(depth) + "assets/index/index.js" : name + ".js";
+            String src = indexPage ? SiteBuilder.depthPrefix(depth) + "assets/index/index" + sb.jsSuffix() : name + sb.jsSuffix();
             sb2.append("  <script src=\"").append(src).append("\"></script>\n");
         }
         return sb2.toString();
@@ -91,7 +137,7 @@ class SiteTags {
             if (cssPass) {
                 return info.css.isEmpty() ? "" : "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth) + "assets/css/" + flat + ".css\">\n";
             }
-            return info.js.isEmpty() ? "" : "  <script src=\"" + SiteBuilder.depthPrefix(depth) + "assets/js/" + flat + ".js\"></script>\n";
+            return info.js.isEmpty() ? "" : "  <script src=\"" + SiteBuilder.depthPrefix(depth) + "assets/js/" + flat + sb.jsSuffix() + "\"></script>\n";
         }
         String url;
         if (s.startsWith("pre-assets/")) {

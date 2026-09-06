@@ -1,2 +1,2 @@
 /* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0：再分发须保留本声明与 LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
-(function(){var t=localStorage.getItem('ssvul-theme');if(t)document.documentElement.setAttribute('data-theme',t);})();
+(function(){var t=localStorage.getItem('ssvul-theme');if(t)document.documentElement.setAttribute('data-theme',t);var p=localStorage.getItem('ssvul-palette');if(p){try{p=JSON.parse(p);for(var k in p)document.documentElement.style.setProperty(k,p[k]);}catch(e){}}})();

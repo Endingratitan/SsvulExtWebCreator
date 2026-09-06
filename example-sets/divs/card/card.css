@@ -1,0 +1,4 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0：再分发须保留本声明与 LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+.card { border: 1px solid #d8dee7; border-radius: 8px; padding: 1em 1.2em; margin: 1em 0; background: rgba(0,0,0,.02); }
+[data-theme="dark"] .card { border-color: #3a4258; background: rgba(255,255,255,.03); }
+.card h3 { margin-top: 0; }

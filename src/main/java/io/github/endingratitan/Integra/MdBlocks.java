@@ -40,14 +40,11 @@ class MdBlocks {
             if (t.startsWith(">"))     { i = renderQuote(out, lines, i, end, listDepth, quoteDepth, base); continue; }
             if (isListStart(t))        { i = renderList(out, lines, i, end, listDepth, quoteDepth, base); continue; }
             if (isTableAhead(lines, i, end)) { i = renderTable(out, lines, i, end, base); continue; }
-            if (isMathBlock(t))        { out.append("<div class=\"md-math-block\">").append(MarkdownRenderer.esc(t)).append("</div>\n"); i++; continue; }
+            if (isMathOpen(t) || isMathOpenBracket(t)) { i = renderMathBlock(out, lines, i, end, base); continue; }
             int h = headingLevel(t);
             if (h > 0)                 { renderHeading(out, t, h, base + i + 1); i++; continue; }
-            if (isHr(t))               { out.append("<hr>\n"); i++; continue; }
-            if (isDashLine(t)) {
-                if (owner.isStrict()) { owner.error(base + i + 1, "不支持 --- 分隔线", "请改用 ***", t); i++; continue; }
-                out.append("<hr>\n"); i++; continue;
-            }
+            String hr = hrType(t);
+            if (hr != null)            { out.append("<hr class=\"").append(hr).append("\">\n"); i++; continue; }
             if (isHtmlBlock(t)) {
                 if (owner.isStrict()) { owner.error(base + i + 1, "strict 模式不支持 HTML", "请改用 div.raw 或模板", t); i++; continue; }
                 out.append(lines.get(i)).append('\n');   // simple：原生 HTML 直出
@@ -89,10 +86,32 @@ class MdBlocks {
     private void renderHeading(StringBuilder out, String t, int level, int lineNo) {
         String content = t.substring(level).trim();
         content = content.replaceFirst("[ \t]*#+[ \t]*$", "");
-        out.append("<h").append(level).append(" id=\"s").append(++owner.headingSeq).append("\">")
+        if (content.isEmpty()) owner.warn(lineNo, "标题为空（# 后无内容）");   // 两模式仅警告（GitHub 容忍）
+        out.append("<h").append(level).append(" id=\"").append(owner.anchorId(++owner.headingSeq)).append("\">")
            .append(owner.inline(content, lineNo, 0))
            .append("</h").append(level).append(">\n");
         if (owner.tocOn && level >= 2) owner.recordHeading(level, content, owner.headingSeq);
+    }
+
+    /** 块数学：$$…$$ 或 \[…\]（单行或多行，以定界符起、行尾定界符收）；未闭合两模式都报错 */
+    private int renderMathBlock(StringBuilder out, List<String> lines, int i, int end, int base) {
+        String first = MarkdownRenderer.stripIndent(lines.get(i));
+        boolean bracket = first.startsWith("\\[");
+        String close = bracket ? "\\]" : "$$";
+        StringBuilder sb = new StringBuilder(first);
+        int j = i + 1;
+        boolean closed = first.trim().length() >= 4 && first.trim().endsWith(close);
+        while (!closed && j < end) {
+            String l = lines.get(j);
+            sb.append('\n').append(l);
+            j++;
+            if (l.trim().endsWith(close)) { closed = true; break; }
+        }
+        if (!closed) owner.error(base + i + 1, "块数学未闭合", "请在末尾补 " + close, first);
+        out.append("<div class=\"md-math-block\"");
+        if (bracket) out.append(" data-delim=\"latex-block\"");   // 非默认定界符才标注（$ 路径保持既有输出）
+        out.append(">").append(MarkdownRenderer.esc(sb.toString())).append("</div>\n");
+        return j;
     }
 
     private int renderFenced(StringBuilder out, List<String> lines, int i, int end, int base) {
@@ -124,21 +143,72 @@ class MdBlocks {
         String rendered;
         try {
             rendered = MarkdownRenderer.codeEngine.renderCode(content.toString(), lang);
+            if (rendered == null) {   // 引擎链全员拒接该语言：纯文本兜底 + 警告，构建不失败
+                owner.warn(base + i + 1, "无引擎接受语言 \"" + lang + "\"，该块已按纯文本输出");
+                rendered = MarkdownRenderer.esc(content.toString());
+            }
         } catch (RuntimeException e) {
             owner.error(base + i + 1, "代码引擎渲染失败: " + e.getMessage(), "该块已按纯文本输出", lang);
             rendered = MarkdownRenderer.esc(content.toString());
         }
-        out.append("<pre class=\"md-pre\"><code class=\"md-code");
-        if (!lang.isEmpty()) out.append(" language-").append(lang);
-        out.append("\">").append(rendered).append("</code></pre>\n");
+        owner.hadCode = true;
+        boolean ui = !owner.codeUiItems.isEmpty() || owner.codeUiBg != null || owner.codeUiRounded;
+        String pre = "<pre class=\"md-pre\"><code class=\"md-code";
+        if (!lang.isEmpty()) pre += " language-" + lang;
+        pre += "\">" + rendered + "</code></pre>\n";
+        if (!ui) { out.append(pre); return j; }
+
+        // code-ui 外壳：块容器 + items（数组顺序 = DOM 顺序）+ 块级属性类
+        boolean hasLang = owner.codeUiItems.contains("lang-label");
+        boolean hasDots = owner.codeUiItems.contains("mac-dots");
+        boolean hasCopy = owner.codeUiItems.contains("copy-btn");
+        StringBuilder b = new StringBuilder("<div class=\"md-code-block");
+        if (hasLang) b.append(" codeui-lang");
+        if (hasDots) b.append(" codeui-dots");
+        if (hasCopy) b.append(" codeui-copy");
+        if (owner.codeUiBg != null) b.append(" codeui-bg");
+        if (owner.codeUiRounded) b.append(" codeui-rounded");
+        if (hasCopy && "tr".equals(owner.codeUiLabelPos)) b.append(" has-copy");
+        b.append("\" data-lang=\"").append(MarkdownRenderer.esc(lang))
+         .append("\" data-items=\"").append(MarkdownRenderer.esc(String.join(",", owner.codeUiItems))).append('"');
+        if (owner.codeUiBg != null) b.append(" style=\"background-image:url(").append(MarkdownRenderer.esc(owner.codeUiBg)).append(");\"");
+        b.append(">\n");
+        for (String it : owner.codeUiItems) {
+            switch (it) {
+                case "lang-label" -> {
+                    if (!lang.isEmpty())
+                        b.append("<span class=\"md-code-lang pos-").append(owner.codeUiLabelPos).append("\">")
+                         .append(MarkdownRenderer.esc(lang)).append("</span>\n");
+                }
+                case "mac-dots" ->
+                        b.append("<span class=\"md-code-dots\" aria-hidden=\"true\"><i></i><i></i><i></i></span>\n");
+                case "copy-btn" ->
+                        b.append("<button type=\"button\" class=\"md-code-copy\">复制</button>\n");
+                default -> {
+                    if (!owner.codeUiWarnedUnknown) {   // 未知 item：警告一次 + 跳过（CODEUI.js 可经 data-items 接手实现）
+                        owner.warn(base + i + 1, "code-ui 未知 item（已跳过，可由 CODEUI.js 按 data-items 实现）: " + it);
+                        owner.codeUiWarnedUnknown = true;
+                    }
+                }
+            }
+        }
+        b.append(pre).append("</div>\n");
+        out.append(b);
         return j;
     }
 
     private int renderQuote(StringBuilder out, List<String> lines, int start, int end,
                             int listDepth, int quoteDepth, int base) {
-        if (quoteDepth >= 2) {
-            owner.error(base + start + 1, "引用嵌套超过两层", "请压缩层级", lines.get(start).trim());
-            return start + 1;
+        boolean flatten = quoteDepth >= 2;
+        if (flatten) {
+            if (owner.isStrict()) {
+                owner.error(base + start + 1, "引用嵌套超过两层", "请压缩层级", lines.get(start).trim());
+                return start + 1;
+            }
+            if (!owner.quoteFlattenWarned) {   // simple：压平继续渲染，警告一次
+                owner.warn(base + start + 1, "引用嵌套超过两层（simple：压平继续渲染）");
+                owner.quoteFlattenWarned = true;
+            }
         }
         List<String> sub = new ArrayList<>();
         int i = start;
@@ -152,7 +222,8 @@ class MdBlocks {
             }
             String t = MarkdownRenderer.stripIndent(l);
             if (!t.startsWith(">")) {
-                owner.error(base + i + 1, "引用块内每行需以 > 开头", "请补 > 或以空行结束引用块", t);
+                if (owner.isStrict()) owner.error(base + i + 1, "引用块内每行需以 > 开头", "请补 > 或以空行结束引用块", t);
+                else owner.warn(base + i + 1, "引用块内缺 > 行（simple：按段落继续）");
                 break;
             }
             t = t.substring(1);
@@ -161,7 +232,7 @@ class MdBlocks {
             i++;
         }
         out.append("<blockquote>\n");
-        renderBlocks(out, sub, listDepth, quoteDepth + 1, base + start);
+        renderBlocks(out, sub, listDepth, flatten ? quoteDepth : quoteDepth + 1, base + start);
         out.append("</blockquote>\n");
         return i;
     }
@@ -286,13 +357,23 @@ class MdBlocks {
         String t = MarkdownRenderer.stripIndent(lines.get(i));
         if (t.isEmpty()) return true;
         return isFence(t) || t.startsWith(">") || isListStart(t) || isTableAhead(lines, i, end)
-                || isMathBlock(t) || headingLevel(t) > 0 || isHr(t) || isDashLine(t) || isHtmlBlock(t);
+                || isMathOpen(t) || isMathOpenBracket(t) || headingLevel(t) > 0 || hrType(t) != null || isHtmlBlock(t);
     }
 
     private static boolean isFence(String t) { return t.matches("(`{3,}|~{3,}).*"); }
-    private static boolean isMathBlock(String t) { return t.startsWith("$$") && t.endsWith("$$") && t.trim().length() >= 4; }
-    private static boolean isHr(String t) { return t.matches("\\*{3,}[ \t]*$") || t.matches("_{3,}[ \t]*$"); }
-    private static boolean isDashLine(String t) { return t.matches("-{3,}[ \t]*$"); }
+    private static boolean isMathOpen(String t) { return t.startsWith("$$"); }
+    private static boolean isMathOpenBracket(String t) { return t.startsWith("\\["); }
+
+    /**
+     * 分割线特性（v2 收尾）：--- / +++ / ***（与 ___ 同档）各自注册独立 class，
+     * 供 CSS 分别定制渲染（可选）；simple 与 strict 都放行。
+     */
+    private static String hrType(String t) {
+        if (t.matches("\\*{3,}[ \t]*$") || t.matches("_{3,}[ \t]*$")) return "md-hr-star";
+        if (t.matches("-{3,}[ \t]*$")) return "md-hr-dash";
+        if (t.matches("\\+{3,}[ \t]*$")) return "md-hr-plus";
+        return null;
+    }
 
     private static boolean isHtmlBlock(String t) {
         if (!t.startsWith("<")) return false;

@@ -30,7 +30,8 @@ public class AssetsConfigReader {
 
     /** config 允许的键（未知键报错） */
     private static final Set<String> CONFIG_KEYS =
-            Set.of("cname", "server", "bucket", "categories", "readme", "local-favicon", "offline");
+            Set.of("cname", "server", "bucket", "categories", "readme", "local-favicon", "offline",
+                    "engine-words", "minify", "minifier");
 
     public AssetsConfigReader(File configFile) {
         this.ConfigFile = configFile;
@@ -110,6 +111,8 @@ public class AssetsConfigReader {
                 }
                 if (key.equals("bucket")) {
                     addBucket(value, lineNo);
+                } else if (key.equals("engine-words")) {
+                    configMap.computeIfAbsent("engine-words", k -> new ArrayList<>()).add(value);   // 允许多条
                 } else {
                     configMap.put(key, new ArrayList<>(List.of(value)));   // 非 bucket 键：最后一次为准
                 }

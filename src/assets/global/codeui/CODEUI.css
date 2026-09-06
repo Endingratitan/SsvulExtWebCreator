@@ -1,0 +1,25 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0：再分发须保留本声明与 LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+/* CODEUI.css 官方模板：复制到 sets/global/codeui/CODEUI.css 后按需修改（存在即注入，仅注入有代码块的页面）。
+   结构契约（构建期生成）：
+     <div class="md-code-block [codeui-lang|codeui-dots|codeui-copy|codeui-bg|codeui-rounded] [has-copy]"
+          data-lang="bash" data-items="...">
+       角标 .md-code-lang.pos-tr|tl|br|bl ／ 红绿灯 .md-code-dots（3 个 <i>）／ 复制按钮 button.md-code-copy
+       <pre class="md-pre"><code class="md-code language-x">…
+   基础样式在预设 md/css/md.css（--codeui-radius 变量随主题变化）；本文件只写覆盖与扩展。
+   明暗主题用 [data-theme="…"] 选择器（主题系统切换 data-theme 属性）。 */
+
+/* 示例：让角标更醒目 */
+.md-code-lang {
+  background: rgba(0, 0, 0, .35);
+  color: #fff;
+  padding: .1em .5em;
+  border-radius: 4px;
+}
+[data-theme="dark"] .md-code-lang { background: rgba(255, 255, 255, .12); }
+
+/* 示例：圆角加大 */
+.md-code-block.codeui-rounded .md-pre { border-radius: 14px; }
+
+/* 示例：按语言定制角标色（data-lang 钩子） */
+.md-code-block[data-lang="bash"] .md-code-lang { color: #89e051; }
+.md-code-block[data-lang="python"] .md-code-lang { color: #ffd43b; }

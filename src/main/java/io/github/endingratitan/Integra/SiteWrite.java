@@ -41,6 +41,11 @@ class SiteWrite {
                 c = c.replace("@favicon/", SiteBuilder.depthPrefix(q.depth) + "favicon/");
                 c = replacePageRefs(c, q.depth);
                 if (!q.target.getName().endsWith(".js")) c = replaceBuckets(c, q.depth);   // JS 不做 bk/ 替换（误伤风险）
+                // minify：生成物 js（含站点 CODEUI.js）；vendor lib/ 与 raw 资产不碰
+                if (sb.minifyOn && q.target.getName().endsWith(".js")
+                        && !q.target.getPath().replace('\\', '/').contains("/lib/")) {
+                    c = sb.minifyJs(c);
+                }
                 Files.createDirectories(q.target.getParentFile().toPath());
                 Files.writeString(q.target.toPath(), c, StandardCharsets.UTF_8);
             } catch (IOException e) {
@@ -52,7 +57,12 @@ class SiteWrite {
             File dst = new File(sb.outputDir, "assets/pre/" + rel);
             try {
                 Files.createDirectories(dst.getParentFile().toPath());
-                Files.copy(src.toPath(), dst.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                // 官方预设 js（md/js 等）在输出副本压缩（保许可头）；vendor lib/ 与 css 原样
+                if (sb.minifyOn && rel.endsWith(".js") && !rel.startsWith("lib/")) {
+                    Files.writeString(dst.toPath(), sb.minifyJs(sb.readFile(src)), StandardCharsets.UTF_8);
+                } else {
+                    Files.copy(src.toPath(), dst.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                }
             } catch (IOException e) {
                 sb.errors.add("预设复制失败: " + rel + " - " + e.getMessage());
             }
@@ -97,6 +107,10 @@ class SiteWrite {
             int end = start;
             while (end < out.length() && isPathChar(out.charAt(end))) end++;
             String path = out.substring(start, end);
+            if (path.equals("INDEX")) {   // INDEX 特判页输出在站点根（index.html），非 pages/INDEX
+                out = out.substring(0, idx) + SiteBuilder.depthPrefix(depth) + out.substring(end);
+                continue;
+            }
             if (path.isEmpty() || !sb.pageOutputs.contains("pages/" + path)) {
                 sb.errors.add("站内互链目标不存在: @page/" + path);
                 break;

@@ -81,15 +81,17 @@ public class MarkdownRendererTest {
         assertTrue(deep.getMessage().contains("列表嵌套超过两层"));
         assertTrue(deep.getMessage().contains("▸ 本行"));   // 错误上下文三行显示
 
-        RuntimeException dash = assertThrows(RuntimeException.class, () ->
-                MarkdownRenderer.render("---\n", "t", strict));
-        assertTrue(dash.getMessage().contains("请改用 ***"));
+        // --- / +++ / *** 分割线特性：两种模式都放行，各自 class（v2 收尾）
+        assertTrue(MarkdownRenderer.render("---\n", "t", strict).contains("md-hr-dash"));
+        assertTrue(MarkdownRenderer.render("+++\n", "t", strict).contains("md-hr-plus"));
+        assertTrue(MarkdownRenderer.render("***\n", "t").contains("md-hr-star"));
+        assertTrue(MarkdownRenderer.render("___\n", "t").contains("md-hr-star"));
     }
 
     @Test
     void errorCollectionMultiple() {
         RuntimeException e = assertThrows(RuntimeException.class, () ->
-                MarkdownRenderer.render("---\n\n[x](a b)\n\n[bad](//x)\n", "t", Map.of("mode", "strict")));
+                MarkdownRenderer.render("[x](a b)\n\n[x](//x)\n\n[x](bad)\n", "t", Map.of("mode", "strict")));
         String msg = e.getMessage();
         assertTrue(msg.contains("第 1 行"), msg);
         assertTrue(msg.contains("第 3 行"), msg);
@@ -98,8 +100,9 @@ public class MarkdownRendererTest {
 
     @Test
     void simpleModeLenient() {
-        // --- 分隔线（GitHub 行为）
-        assertTrue(MarkdownRenderer.render("---\n", "t").contains("<hr>"));
+        // --- 分隔线（GitHub 行为；v2 收尾后带 class）
+        String dash = MarkdownRenderer.render("---\n", "t");
+        assertTrue(dash.contains("<hr class=\"md-hr-dash\">"), "实际输出: " + dash);
         // 块级 HTML 直出
         assertTrue(MarkdownRenderer.render("<div class='x'>hi</div>\n", "t")
                 .contains("<div class='x'>hi</div>"));
@@ -168,5 +171,109 @@ public class MarkdownRendererTest {
         // 名字/ 形态按"潜在 bucket 调用名"放行（最终由输出替换阶段校验）
         String nameLike = MarkdownRenderer.render("[x](images/a.png)\n");
         assertTrue(nameLike.contains("href=\"images/a.png\""));
+    }
+
+    // ==================== simple/strict 行为矩阵（⑥） ====================
+
+    @Test
+    void quoteDepthMatrix() {
+        String md = "> 一\n> > 二\n> > > 三\n";
+        assertTrue(MarkdownRenderer.render(md).contains("<blockquote>"));   // simple 压平不抛
+        RuntimeException e = assertThrows(RuntimeException.class, () ->
+                MarkdownRenderer.render(md, "t", Map.of("mode", "strict")));
+        assertTrue(e.getMessage().contains("引用嵌套超过两层"));
+    }
+
+    @Test
+    void quoteMissingGtMatrix() {
+        String md = "> 一\n缺 > 的行\n";
+        assertTrue(MarkdownRenderer.render(md).contains("<blockquote>"));   // simple 警告按段落
+        RuntimeException e = assertThrows(RuntimeException.class, () ->
+                MarkdownRenderer.render(md, "t", Map.of("mode", "strict")));
+        assertTrue(e.getMessage().contains("引用块内每行需以 > 开头"));
+    }
+
+    @Test
+    void blockMathMultilineAndUnclosed() {
+        String html = MarkdownRenderer.render("$$\na + b\n$$\n");
+        assertTrue(html.contains("md-math-block"), html);
+        assertTrue(html.contains("a + b"), html);
+        // 未闭合：两模式都报错
+        RuntimeException e1 = assertThrows(RuntimeException.class, () -> MarkdownRenderer.render("$$\na + b\n", "t"));
+        assertTrue(e1.getMessage().contains("块数学未闭合"));
+        RuntimeException e2 = assertThrows(RuntimeException.class, () ->
+                MarkdownRenderer.render("$$\na + b\n", "t", Map.of("mode", "strict")));
+        assertTrue(e2.getMessage().contains("块数学未闭合"));
+    }
+
+    @Test
+    void emptyHeadingWarnsBothModes() {
+        assertTrue(MarkdownRenderer.render("# \n\n正文\n").contains("<h1"));
+        assertTrue(MarkdownRenderer.render("# \n\n正文\n", "t", Map.of("mode", "strict")).contains("<h1"));
+    }
+
+    @Test
+    void footnoteSurplusStrictUpgrades() {
+        String md = "正文[^1]\n\n[^1]: 甲\n[^2]: 乙\n";
+        assertTrue(MarkdownRenderer.render(md).contains("md-footnotes"));   // simple 仅警告
+        RuntimeException e = assertThrows(RuntimeException.class, () ->
+                MarkdownRenderer.render(md, "t", Map.of("mode", "strict")));
+        assertTrue(e.getMessage().contains("脚注定义未被引用"));
+    }
+
+    @Test
+    void inlineMathUnclosedMatrix() {
+        // simple：孤 $ 以行尾为结束点收口渲染（栈式回退 + 警告）
+        assertTrue(MarkdownRenderer.render("公式 $a + b\n").contains("<span class=\"md-math\">$a + b</span>"));
+        RuntimeException e = assertThrows(RuntimeException.class, () ->
+                MarkdownRenderer.render("公式 $a + b\n", "t", Map.of("mode", "strict")));
+        assertTrue(e.getMessage().contains("行内数学未闭合"));
+    }
+
+    // ==================== LaTeX 原生定界符（v2 收尾） ====================
+
+    @Test
+    void latexInlineMath() {
+        String html = MarkdownRenderer.render("公式 \\(a + b\\) 完\n");
+        assertTrue(html.contains("<span class=\"md-math\" data-delim=\"latex\">\\(a + b\\)</span>"), html);
+    }
+
+    @Test
+    void latexBlockMath() {
+        String html = MarkdownRenderer.render("\\[\na + b\n\\]\n");
+        assertTrue(html.contains("md-math-block"), html);
+        assertTrue(html.contains("data-delim=\"latex-block\""), html);
+        assertTrue(html.contains("a + b"), html);
+    }
+
+    @Test
+    void latexMathUnclosedMatrix() {
+        // 行内 \( 未闭合：simple 收口渲染；strict 报错
+        assertTrue(MarkdownRenderer.render("公式 \\(a + b\n").contains("data-delim=\"latex\""));
+        RuntimeException e1 = assertThrows(RuntimeException.class, () ->
+                MarkdownRenderer.render("公式 \\(a + b\n", "t", Map.of("mode", "strict")));
+        assertTrue(e1.getMessage().contains("行内数学未闭合"));
+        // 块级 \[ 未闭合：两模式都报错
+        RuntimeException e2 = assertThrows(RuntimeException.class, () -> MarkdownRenderer.render("\\[\na + b\n", "t"));
+        assertTrue(e2.getMessage().contains("块数学未闭合"));
+        RuntimeException e3 = assertThrows(RuntimeException.class, () ->
+                MarkdownRenderer.render("\\[\na + b\n", "t", Map.of("mode", "strict")));
+        assertTrue(e3.getMessage().contains("块数学未闭合"));
+    }
+
+    @Test
+    void dollarPathUnchangedByLatexFeature() {
+        // $/$$ 路径不带 data-delim（默认定界符，输出保持既有形态）
+        String html = MarkdownRenderer.render("数学 $x^2$\n\n$$E=mc^2$$\n");
+        assertTrue(html.contains("<span class=\"md-math\">$x^2$</span>"), html);
+        assertTrue(html.contains("<div class=\"md-math-block\">$$E=mc^2$$</div>"), html);
+    }
+
+    @Test
+    void hasCodeInResult() {
+        MarkdownRenderer.MdResult mr = MarkdownRenderer.renderParts("```java\nint x;\n```\n", "t", Map.of());
+        assertTrue(mr.hasCode());
+        MarkdownRenderer.MdResult plain = MarkdownRenderer.renderParts("段落\n", "t", Map.of());
+        assertFalse(plain.hasCode());
     }
 }

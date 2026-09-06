@@ -1,0 +1,13 @@
+{
+  "name": "strict-demo",
+  "title": "strict 模式演示",
+  "md-options": { "mode": "strict", "toc": true },
+  "engine": "simple",
+  "page": {
+    "div-1": { "type": "navbar", "params": { "brand": "Ssvul" } },
+    "div-2": { "type": "article", "params": { "title": "strict 模式" },
+      "markdown": "# strict 模式\n\n本页 `mode: strict`：列表限两层、引用限两层、表格列数必须对齐、围栏必须闭合——以下内容全部按 strict 规则合法。\n\n## 两层列表\n\n- 第一层\n  - 第二层（这是上限）\n- 回到第一层\n\n## 引用与表格\n\n> 引用一层：strict 下超过两层会报错。\n\n| 列一 | 列二 |\n|---|---|\n| 甲 | 乙 |\n\n## 代码\n\n```java\nint x = 1;\n```\n\n脚注[^1]演示。\n\n[^1]: strict 页脚注" },
+    "div-3": { "type": "card", "params": { "title": "提示" },
+      "markdown": "strict 页同样支持 code-ui 与引擎链——本页引擎为 simple。" }
+  }
+}

@@ -39,8 +39,16 @@ public class MarkdownRenderer {
     private String mode = "simple";            // simple=GitHub 兼容（默认）| strict=严格报错
     List<String> srcLines = List.of();         // 错误上下文（三行显示）
     int headingSeq;                            // 标题锚点序号（文档内 s1/s2/...）
+    String anchorPrefix = "";                  // 锚点/脚注 id 前缀（div 级个性化：div-1-s1；裸 md 为空）
     boolean inFootDef;                         // 正在渲染脚注定义内容（内部引用按字面）
     boolean tocOn;                             // md-options.toc：构建期生成目录
+    boolean quoteFlattenWarned;                // 引用压平警告只报一次（simple 模式）
+    boolean hadCode;                           // 本次渲染是否出现围栏代码块（code-ui 注入门控）
+    List<String> codeUiItems = List.of();      // code-ui.items：块内元素（顺序=DOM 顺序）
+    String codeUiBg;                           // code-ui.bg：块背景图（null=无）
+    boolean codeUiRounded;                     // code-ui.rounded：圆角类
+    String codeUiLabelPos = "tr";              // code-ui.label-pos：角标位置
+    boolean codeUiWarnedUnknown;               // 未知 item 警告只报一次
     final List<String[]> tocItems = new ArrayList<>();   // {level, 原文, id}（h2 起收集）
 
     private MdInline inl;
@@ -65,8 +73,21 @@ public class MarkdownRenderer {
 
     /** 分离返回 mdBody 与脚注区（供 {{footnotes}} 占位符注入） */
     public static MdResult renderParts(String md, String source, Map<String, String> options) {
+        return renderParts(md, source, options, "");
+    }
+
+    /** anchorPrefix：标题锚点 id 前缀（如 "div-1-"），避免多 md div 页面锚点重复；TOC 链接同步 */
+    public static MdResult renderParts(String md, String source, Map<String, String> options, String anchorPrefix) {
         MarkdownRenderer r = new MarkdownRenderer(source);
         r.mode = "strict".equalsIgnoreCase(options.getOrDefault("mode", "simple")) ? "strict" : "simple";
+        r.anchorPrefix = anchorPrefix == null ? "" : anchorPrefix;
+        // code-ui 渲染开关（全部默认关/缺省）
+        String items = options.get("codeui.items");
+        r.codeUiItems = items == null || items.isEmpty() ? List.of()
+                : Arrays.asList(items.split(","));
+        r.codeUiBg = options.get("codeui.bg");
+        r.codeUiRounded = "true".equalsIgnoreCase(options.getOrDefault("codeui.rounded", "false"));
+        r.codeUiLabelPos = options.getOrDefault("codeui.label-pos", "tr");
         MdResult res = r.runParts(md == null ? "" : md, options);
         if (!r.errors.isEmpty()) {
             StringBuilder sb = new StringBuilder();
@@ -78,8 +99,10 @@ public class MarkdownRenderer {
         return res;
     }
 
-    /** 渲染结果：mdBody 不含脚注区（脚注区单独返回，供 {{footnotes}} 占位符或文末注入） */
-    public record MdResult(String mdBody, String footnotes) {}
+    /** 渲染结果：mdBody 不含脚注区（脚注区单独返回，供 {{footnotes}} 占位符或文末注入）；hasCode=是否出现围栏代码块 */
+    public record MdResult(String mdBody, String footnotes, boolean hasCode) {
+        public MdResult(String mdBody, String footnotes) { this(mdBody, footnotes, false); }
+    }
 
     /** 把脚注区插回 md-body 末尾（无脚注时原样返回） */
     public static String joinResult(MdResult r) {
@@ -109,13 +132,16 @@ public class MarkdownRenderer {
         if (tocOn && !tocItems.isEmpty()) content.insert(0, buildToc());   // 目录置于 md-body 顶部
         for (String w : warnings) IO.println("[md 警告] " + w);
         String mdBody = "<div class=\"md-body\">\n" + content + "</div>\n";
-        return new MdResult(mdBody, footnotes);
+        return new MdResult(mdBody, footnotes, hadCode);
     }
 
     /** 块级解析器回调：记录入目录的标题（h2 起） */
     void recordHeading(int level, String text, int seq) {
-        tocItems.add(new String[]{String.valueOf(level), text, "s" + seq});
+        tocItems.add(new String[]{String.valueOf(level), text, anchorId(seq)});
     }
+
+    /** 锚点 id（含 div 前缀，如 div-1-s1） */
+    String anchorId(int seq) { return anchorPrefix + "s" + seq; }
 
     private String buildToc() {
         StringBuilder sb = new StringBuilder("<nav class=\"md-toc\">\n<ul>\n");

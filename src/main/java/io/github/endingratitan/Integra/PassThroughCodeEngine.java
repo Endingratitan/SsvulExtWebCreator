@@ -8,13 +8,28 @@
  */
 package io.github.endingratitan.Integra;
 
+import java.util.List;
+
 /**
- * v1 默认引擎：不构建期上色，仅做 HTML 转义。
- * 语法高亮由客户端 hljs（md-js 预设）完成后，token-map.js 再映射到 canonical 类。
+ * hljs 引擎条目（客户端上色链路）：构建期不做上色，仅 HTML 转义；
+ * 浏览器端由 hljs.min.js 上色、token-map.js 映射 canonical 类 tk-*。
+ * 资源经 autoAssets() 声明，页面含带语言的代码块时才注入（性能优先）。
  */
 public class PassThroughCodeEngine implements CodeEngine {
+
+    private static final List<String> HLJS_ASSETS = List.of(
+            "pre-assets/lib/hljs/hljs.min.js",
+            "pre-assets/md/js/token-map.js",
+            "pre-assets/md/js/md-highlight.js");
+
     @Override
     public String renderCode(String code, String language) {
         return MarkdownRenderer.escapeHtml(code);
     }
+
+    @Override
+    public String name() { return "hljs"; }
+
+    @Override
+    public List<String> autoAssets() { return HLJS_ASSETS; }
 }

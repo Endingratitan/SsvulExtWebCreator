@@ -29,6 +29,25 @@ class MdInline {
         int i = 0, n = s.length();
         while (i < n) {
             char c = s.charAt(i);
+            // LaTeX 原生定界符 \( … \)（行内）：置于转义分支之前，避免 \( 被当作转义吃掉
+            if (c == '\\' && s.startsWith("\\(", i)) {
+                int j = s.indexOf("\\)", i + 2);
+                if (j > i + 1) {
+                    out.append("<span class=\"md-math\" data-delim=\"latex\">").append(MarkdownRenderer.esc(s.substring(i, j + 2))).append("</span>");
+                    i = j + 2;
+                    continue;
+                }
+                if (owner.isStrict()) {
+                    owner.error(lineNo, "行内数学未闭合（strict）", "请补 \\) 或改用 \\[ \\] 块数学", "\\(");
+                    out.append("\\(");
+                    i += 2;
+                    continue;
+                }
+                owner.warn(lineNo, "行内数学未闭合（simple：按行尾收口渲染）");
+                out.append("<span class=\"md-math\" data-delim=\"latex\">").append(MarkdownRenderer.esc(s.substring(i))).append("</span>");
+                i = n;
+                continue;
+            }
             if (c == '\\' && i + 1 < n && PUNCT.indexOf(s.charAt(i + 1)) >= 0) {
                 out.append(MarkdownRenderer.esc(s.charAt(i + 1)));
                 i += 2;
@@ -49,6 +68,23 @@ class MdInline {
                     i = j + 1;
                     continue;
                 }
+                // 货币形态（$ 后随数字，如 $5）：保持字面，两种模式都不报错/不收口
+                if (i + 1 < n && Character.isDigit(s.charAt(i + 1))) {
+                    out.append('$');
+                    i++;
+                    continue;
+                }
+                // 未闭合：strict 报错；simple 栈式回退——已配对的由主循环处理，孤 $ 以行尾为结束点（性能优先，不跨行扫描）
+                if (owner.isStrict()) {
+                    owner.error(lineNo, "行内数学未闭合（strict）", "请补 $ 或改用 $$ 块数学", "$");
+                    out.append('$');
+                    i++;
+                    continue;
+                }
+                owner.warn(lineNo, "行内数学未闭合（simple：按行尾收口渲染）");
+                out.append("<span class=\"md-math\">").append(MarkdownRenderer.esc(s.substring(i))).append("</span>");
+                i = n;
+                continue;
             }
             if (depth < 2) {
                 int j = -1;

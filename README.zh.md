@@ -1,5 +1,8 @@
 # SsvulExtWebCreator
 ## 项目目标
+
+项目将牺牲产出物的可读性，但是编译材料是方便维护阅读的。
+
 - 依靠json配置文件，组装html，js，css等文件，自动生成网络文件  
 - md格式转html，并个性化可配置文件
 - 其他
@@ -24,6 +27,7 @@ divs/
 pages/
 data/
 outer/
+global/ （可选，全局域根：codeui/ 等，未来扩展 fonts/ 等）
 favicon/ （可选）
 
 #### Environment.config
@@ -41,6 +45,9 @@ bucket键的值将以数组存储，允许多次输入；其他键以最后一�
 | readme        | 会不会在output中添加readme等md文件，需要为1，不要为0，默认为0    |
 | local-favicon | favicon目录是在项目中还是云端，0为项目，1为bucket，默认0         |
 | offline       | 离线模式：1=是（bucket 引用命中 outer/ 镜像时本地替换进 assets/outer/，未命中报错）；0=否（默认，输出线上 URL；outer 目录存在时对未命中的引用发警告） |
+| engine-words  | 词表扩展：`(语言,data/词表路径)` 可多条；为 simple 引擎追加关键字（行格式 `词` 或 `词:tokenid`，tokenid 见 token-map.js 的 tk 集合，缺省 kw）        |
+| minify        | 输出 js 压缩：1=开（**默认**：生成物改 `.min.js` 后缀并压缩内容，官方预设 js 的输出副本同步压缩，均保留许可头）；0=关（原样 `.js`，字节兼容）           |
+| minifier      | 压缩引擎：simple（默认，自编稳定实现——局部名改写+注释/空白压缩，含 eval/解构等自动降级护栏）；v3 预留 closure（Google Closure Compiler）接入          |
 
 #### divs/
 divs里面可有子目录作为categories，所有子目录下再有单独的div类型目录；
@@ -100,9 +107,11 @@ offline=0 时：输出线上 URL，但若 outer 目录存在而引用未命中 �
 | head                       | string[] | 追加进 <head> 的原生 HTML 片段                                                                     |
 | theme                      | string   | 初始主题（如 light/dark）：生成 data-theme + 防闪烁内联脚本，并自动引用 md-theme.js 预设           |
 | md-css                     | string   | md 主题 css（pre-assets/、bk/、http(s)://）；缺省用预设 pre-assets/md/css/md.css；无 md 内容时忽略 |
-| md-js                      | string[] | md 增强 js（顺序保序；如 md-highlight.js、md-math.js）；有 md 内容时注入                           |
+| md-js                      | string[] | md 增强 js（顺序保序；如 md-math.js）；有 md 内容时注入；hljs 高亮三件套已由 engine 自动注入，无需手写 |
 | deps                       | string[] | 依赖：http(s):// 外源、pre-assets/ 预设、global:<type> 显式引用 .global div                        |
-| page                       | object   | 内容区：div 组合树，键为 div-ID                                                                    |  
+| engine                     | string/string[] | 代码高亮引擎（有序链，默认 hljs）；simple=构建期词法零客户端脚本；详见"代码高亮引擎"小节          |
+| code-ui                    | object   | 代码块外壳定制（items 数组 + bg/rounded/label-pos，全默认关）；详见"代码块外壳定制"小节            |
+| page                       | object   | 内容区：div 组合树，键为 div-ID                                                                    |
 
 
 #### page（div 组合树）
@@ -112,14 +121,16 @@ offline=0 时：输出线上 URL，但若 outer 目录存在而引用未命中 �
   - `type`（必填）：对应 sets/divs/ 下目录（categories=1 时写作 category/divname），未命中回落 src/assets/divs/
   - `params`：注入模板 {{key}} 并渲染为根元素 data-key 属性；键名禁止 content/children
   - `markdown`：内联 md；或以 @pages/...、@data/... 引用 md 文件 → 转 html 注入 {{content}}
+  - `md-options`：本 div 的 md 渲染选项（可选）：级联覆盖页面级/父 div 同名键，只作用于本 div 的 markdown；锚点/脚注 id 自动加本 div-ID 前缀
   - `raw`：任意 HTML 片段注入 {{content}}（与 markdown 二选一）
   - `attrs`：注入根元素属性（class 并入默认类 ssvul-<type>；id 禁止）
   - `divs`：嵌套子组合（同 div-ID 规则）
 
 #### md 语法（v1 子集）
-标题（# 后须空格，自动分配锚点 id s1/s2…；`#锚点` 链接放行不校验）、段落、**粗**/*斜*/_斜_（_ 两侧不得同时为字母数字）、`行内代码`、~~删除~~、
-[链接](url)、![图片](url)、两层列表（含任务列表 - [ ]）、引用块（每行须 >，递归，两层）、围栏代码块（```lang）、
-表格（:--- 对齐）、$...$ 行内 / $$...$$ 块数学、[[key]] 按键、*** 分隔线、<https://> 自动链接、\ 转义（含 \$ 强制输出 $）。
+标题（# 后须空格，自动分配锚点 id：页面 div 内为 `div-ID 前缀` 形态如 `div-1-s1`（多 md div 不重复），裸 md 页面为 `s1/s2…`；`#锚点` 链接放行不校验，需写全带前缀的 id）、段落、**粗**/*斜*/_斜_（_ 两侧不得同时为字母数字）、`行内代码`、~~删除~~、
+[链接](url)、![图片](url)、列表（含任务列表 - [ ]；simple 不限层、strict 两层）、引用块（每行须 >；simple 超两层压平警告、strict 两层）、围栏代码块（```lang）、
+表格（:--- 对齐）、$...$ 与 \(...\) 行内数学、$$...$$ 与 \[...\] 块数学（块级支持多行）、[[key]] 按键、
+分割线（***/___ 实线、--- 虚线、+++ 双线，各自独立 class 可分别定制 CSS）、<https://> 自动链接、\ 转义（含 \$ 强制输出 $）。
 链接/图片 URL 白名单：http(s)://、pre-assets/、@data/、@page/（站内互链）、#锚点、bucket 调用名。
 
 脚注：引用 `[^n]`（尊重用户编号、可重复引用）与 `[^.]`（自动补最小空位，显式编号全部占位）；
@@ -131,11 +142,99 @@ md 渲染选项（页面 json 顶层 `md-options`，全部有默认值可不写�
 - `mode`: `simple`（默认，GitHub 兼容：--- 分隔线、原生 HTML、不限列表嵌套、未闭合围栏不报错）| `strict`（严格报错，列表嵌套限两层）
 - `footnote-display`: `end`（默认，脚注统一放）| `inline`（就地显示）
 - `toc`: `true` 构建期生成目录（md-body 顶部，h2~h6 入目录、h1 排除；默认 false）
-未识别的块级语法、未闭合代码块、--- 分隔线、HTML 行 → 报错（带行号与修复建议）。
+div 条目内可写同名 `md-options`（可选，级联覆盖）：只覆盖写出的键，其余继承页面级（嵌套 div 继承父 div 有效值）；
+只作用于该 div 自己的 markdown，其标题锚点与脚注 id 自动加该 div-ID 前缀（如 div-1-s1、div-1-fn-1）。
+
+simple/strict 行为矩阵（⑥ 定稿；两模式支持面相同，仅容忍度不同）：
+
+| 语法点 | simple（默认） | strict |
+|---|---|---|
+| 未闭合代码围栏 | 渲染到文末 | 报错"未闭合的代码块" |
+| 列表嵌套 | 不限层；>4 层警告、>6 层停止展开 | ≤2 层，超出报错 |
+| 表格列数不齐 | 按表头列数补齐/截断 | 报错（分隔行/数据行） |
+| 分割线 `---` | `<hr class="md-hr-dash">`（虚线，可定制 CSS） | 同左 |
+| 分割线 `+++` | `<hr class="md-hr-plus">`（双线，可定制 CSS） | 同左 |
+| 分割线 `***`/`___` | `<hr class="md-hr-star">`（实线，可定制 CSS） | 同左 |
+| 原生 HTML 行 | 透传 | 报错"请改用 div.raw" |
+| 引用嵌套 | 超 2 层警告一次并压平渲染 | 超 2 层报错 |
+| 引用内缺 `>` 行 | 警告，按段落继续 | 报错 |
+| 块数学 `$$` 未闭合 | 报错 | 报错 |
+| 行内数学未闭合 `$` | 孤 `$` 按行尾收口渲染 + 警告；`$数字`（货币）保持字面 | 报错；`$数字` 字面 |
+| 空标题 | 警告 | 警告 |
+| 脚注定义未被引用 | 警告 | 报错 |
+| URL 白名单违反 / 空 URL | 报错 | 报错（安全不分模式） |
+| 脚注引用未定义 | 报错 | 报错 |
+
+#### 代码高亮引擎（engine 换装）
+
+页面顶层 `engine`（string 或有序链 string[]，默认 `hljs`）决定"谁给围栏代码块上色"。换引擎不换产物契约：
+代码块始终是 `<code class="md-code language-x">` 外壳 + canonical 类 `tk-*`，由 CSS 变量层（--md-code-*）统一上色，
+主题换肤（theme 键）对所有引擎同样生效。
+
+- `hljs`（默认）：客户端上色。构建期仅转义；浏览器加载 hljs.min.js → md-highlight.js 上色 → token-map.js 映射 tk-*。
+  资源自动注入（仅当页面含**带语言**的代码块时，性能优先）；md-js 手写同款脚本会去重并警告。
+- `simple`：构建期词法引擎（技术验证器）。内置 java/javascript/python/c/cpp/bash/html 词表，
+  构建产物直接带 tk-* 类——零客户端脚本、无首屏闪烁、无 JS 环境也有颜色，追求性能与离线时的首选。
+  局限：仅词法（正则内部、模板插值内部等粗处理），不认识的代码块不接。
+- 数组 = 有序链（如 `["simple","hljs"]`）：按序问询各引擎 `accepts(lang)`，命中的上色；
+  全员拒接 → 纯文本兜底 + 构建警告（**构建永不因高亮失败**）；链成员的客户端资源合并去重后注入。
+- 未知名引擎：忽略 + 构建警告（⑥ 定稿：不升级为报错）。
+- 词表扩展：Environment.config 的 `engine-words=(语言,data/词表路径)`（可多条）为 simple 追加/覆盖关键字，
+  文件行格式：`#注释`、`词`（默认 tokenid=kw）、`词:tokenid`。
+- 裸 md 页面（无同名 json）不注入任何引擎资源（性能优先）；第三方引擎接入为 v3 计划（tree-sitter 等）。
+
+#### 代码块外壳定制（code-ui）
+
+页面顶层 `code-ui`（全部默认关/缺省）：
+
+- `items`（string[]）：声明块内要哪些元素，**数组顺序 = DOM 顺序**。内置：`lang-label`（语言角标）、`mac-dots`（红绿灯）、`copy-btn`（复制按钮，自动引用内置 md-copy.js——clipboard API + execCommand 回退，成功派发 `ssvulcopy` 事件）。未知名 item：警告跳过，但完整列表保留在块容器 `data-items` 属性里，站点 CODEUI.js 可按它自行实现（逃生舱）。
+- `bg`（string）：块背景图，inline style 注入（pre-assets/、bk/、http(s):// 形态，替换趟联动、离线可用）。
+- `rounded`（boolean）：圆角（半径变量 `--codeui-radius`，随主题变化）。
+- `label-pos`（enum tr/tl/br/bl）：角标位置；复制按钮固定右上，tr 冲突时角标自动让位（块加 `has-copy` 类）。
+
+生成的契约结构（CSS/JS 深度定制三层钩子：块级开关类 × 元素类 × `data-lang` 语言态）：
+```html
+<div class="md-code-block codeui-lang codeui-dots codeui-copy codeui-bg codeui-rounded has-copy"
+     data-lang="bash" data-items="lang-label,mac-dots,copy-btn" style="background-image:url(…);">
+  <span class="md-code-lang pos-tr">bash</span>
+  <span class="md-code-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+  <button type="button" class="md-code-copy">复制</button>
+  <pre class="md-pre"><code class="md-code language-bash">…
+```
+
+**站点级逃生舱**：`sets/global/codeui/CODEUI.css` 与 `CODEUI.js`（域内仅允许这两个文件，多出报错）——
+**存在即注入**：仅注入**含代码块的页面**（hasCode 门控，性能优先）；css 在主题 css 之后、js 在所有引擎/内置脚本之后执行。
+官方模板在 `src/assets/global/codeui/`（含明暗主题与自定义 item 示例），复制到 sets 后即生效，永不自动注入。
+未在 json 写任何 code-ui 的页面同样会注入（站点级定制全局生效）。
+
+#### 接口契约（主题/配色/事件）
+
+| 契约 | 值 |
+|---|---|
+| localStorage 键 | `ssvul-theme`（主题名）、`ssvul-palette`（访客调色板：JSON 变量表如 `{"--md-code-kw":"#ff7b72"}`，优先于主题 css 文件） |
+| 事件 | `themechange`(detail.theme)、`palettechange`(detail.palette)、`ssvulhighlight`(引擎上色完成)、`ssvulcopy`(detail.ok/lang) |
+| 全局对象 | `window.SsvulTheme { get, set, toggle, setPalette, clearPalette }`（md-theme.js 预设提供） |
+| CSS 变量 | `--md-code-*`（26 类 token 配色）+ `--codeui-*`（code-ui 半径等）；主题 css 文件与访客调色板都走这套变量 |
+
+访客自定配色：站点作者用 CODEUI.js 或自写 div 调 `SsvulTheme.setPalette({…})` 即可；防闪烁内联脚本首帧前自动恢复两个键。
 
 #### 特殊文件
 - `sets/pages/INDEX.json`：特判输出到 output/index.html（name 键必须为 INDEX）
 - 裸 md 文件（pages 下无同名 json）：自动成为最简页面（BASE.html + md 渲染 + 预设 md.css）
+- raw 文件夹（pages 下含 index.html 的目录）：整个目录**任意文件直拷**（原始 HTML 资产区，内部 @page/ 等引用照常替换，但不再套模板、不校验内容）
+
+#### 校验清单（配置/资产层，⑥b 定稿）
+
+| 层 | 校验点 |
+|---|---|
+| Environment.config | 未知键报错；语法缺 '=' 报错；cname 必填且禁协议；bucket 格式/重复/协议校验；engine-words 语言名、路径（须 data/）、tokenid 白名单 |
+| page json（schema 层） | 未知键报错；类型不符报错；div-ID 格式与重复键；params 键名禁 content/children；deps 形态白名单（http(s)://、pre-assets/、global:…）；engine 类型 |
+| page json（运行时） | deps 仅 .js/.css 且重复条目去重+警告；md-js 形态与重复去重；@page/@data/md 引用目标存在性；模板未声明占位符；engine 未知名警告回退；md 引用路径形态 |
+| divs 目录 | 类型 kebab-case；目录内仅 js/css/template.html/.global/.adds，未知文件报错；.global 与 .adds 互斥；global: 引用必须指向 .global div |
+| global 目录 | codeui 域仅允许 CODEUI.css/CODEUI.js（多出报错）；未知域目录仅警告（未来扩展预留）；文件复制进 assets/global/codeui/ |
+| data 目录 | 禁 js/css；readme 仅 .md 且文件名去重 |
+| favicon | 形态白名单；local-favicon=1 时禁 @favicon/ |
+| 输出替换 | pre-assets/@data 引用存在性；offline=1 时 bucket 引用必须命中 outer/ 镜像（未命中报错），offline=0 时未命中警告 |
 
 #### 示例
 ```jsonc
@@ -146,7 +245,7 @@ md 渲染选项（页面 json 顶层 `md-options`，全部有默认值可不写�
   "md-js": ["pre-assets/md/js/md-math.js", "pre-assets/md/js/md-highlight.js"],
   "page": {
     "div-1": { "type": "navbar", "params": { "brand": "Ssvul" } },
-    "div-2": { "type": "article", "markdown": "@pages/about.md", "divs": { "div-1": { "type": "comment" } } }
+    "div-2": { "type": "article", "markdown": "@pages/about.md", "md-options": { "footnote-display": "inline" }, "divs": { "div-1": { "type": "comment" } } }
   }
 }
 ```

@@ -139,7 +139,9 @@ class MdFootnotes {
         }
         for (; k < unmatchedDefs.size(); k++) {
             DefRec d = unmatchedDefs.get(k);
-            owner.warn(d.lineNo, "脚注定义未被引用（多余第 " + (k - unmatchedRefs.size() + 1) + " 个）: " + d.content);
+            String msg = "脚注定义未被引用（多余第 " + (k - unmatchedRefs.size() + 1) + " 个）: " + d.content;
+            if (owner.isStrict()) owner.error(d.lineNo, msg, "请删除或补引用", d.content);
+            else owner.warn(d.lineNo, msg);
             d.num = -1;
         }
         // 3) 替换引用占位符
@@ -154,8 +156,9 @@ class MdFootnotes {
                 html = "[^" + r.label + "]";   // 未定义 → 原样字面
             } else {
                 int c = occ.merge(r.num, 1, Integer::sum);
-                String id = c == 1 ? "fnref-" + r.num : "fnref-" + r.num + "-" + c;
-                html = "<sup id=\"" + id + "\"><a href=\"#fn-" + r.num + "\">" + r.num + "</a></sup>";
+                String p = owner.anchorPrefix;   // div 前缀：多 md div 页面脚注 id 不重复（fnref-N → div-1-fnref-N）
+                String id = c == 1 ? p + "fnref-" + r.num : p + "fnref-" + r.num + "-" + c;
+                html = "<sup id=\"" + id + "\"><a href=\"#" + p + "fn-" + r.num + "\">" + r.num + "</a></sup>";
             }
             content.replace(idx, end + 1, html);
         }
@@ -166,8 +169,9 @@ class MdFootnotes {
             DefRec d = allDefs.get(di);
             String html;
             if (d.num != null && d.num > 0) {
-                html = "<div class=\"md-footnote\" id=\"fn-" + d.num + "\">" + renderDefContent(d)
-                     + " <a href=\"#fnref-" + d.num + "\" class=\"md-fn-back\">↩</a></div>";
+                String p = owner.anchorPrefix;
+                html = "<div class=\"md-footnote\" id=\"" + p + "fn-" + d.num + "\">" + renderDefContent(d)
+                     + " <a href=\"#" + p + "fnref-" + d.num + "\" class=\"md-fn-back\">↩</a></div>";
             } else {
                 html = "<div class=\"md-footnote\">" + renderDefContent(d) + "</div>";
             }
@@ -181,8 +185,9 @@ class MdFootnotes {
         StringBuilder fn = new StringBuilder("<div class=\"md-footnotes\">\n<hr>\n<ol>\n");
         for (Map.Entry<Integer, DefRec> e : byNum.entrySet()) {
             int n = e.getKey();
-            fn.append("<li id=\"fn-").append(n).append("\">").append(renderDefContent(e.getValue()))
-              .append(" <a href=\"#fnref-").append(n).append("\" class=\"md-fn-back\">↩</a></li>\n");
+            String p = owner.anchorPrefix;
+            fn.append("<li id=\"").append(p).append("fn-").append(n).append("\">").append(renderDefContent(e.getValue()))
+              .append(" <a href=\"#").append(p).append("fnref-").append(n).append("\" class=\"md-fn-back\">↩</a></li>\n");
         }
         fn.append("</ol>\n</div>\n");
         return fn.toString();

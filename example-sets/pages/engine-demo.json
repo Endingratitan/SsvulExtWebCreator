@@ -1,0 +1,11 @@
+{
+  "name": "engine-demo",
+  "title": "引擎换装演示",
+  "theme": "dark",
+  "engine": ["simple", "hljs"],
+  "page": {
+    "div-1": { "type": "navbar", "params": { "brand": "Ssvul" } },
+    "div-2": { "type": "article", "params": { "title": "引擎链 simple → hljs" },
+      "markdown": "# 引擎链\n\n页面 engine 为 [\"simple\",\"hljs\"]：下面的 java/python 由构建期 simple 上色（零脚本），rust/go 由客户端 hljs 兜底。\n\n```java\nint x = 1;\n```\n\n```python\ndef f():\n    return None\n```\n\n```rust\nfn main() {}\n```\n\n```go\npackage main\n```\n\n```mylang\nmodule top;\n  wire a;\n  reg b;\n  assign a = b;\nendmodule\n```\n\nmylang 是 Environment.config 里 engine-words 声明的用户语言（verilog 风格词表），同样由 simple 构建期上色——U1 词表扩展演示。本页因此携带 hljs 三件套；INDEX 页 engine 为 simple 则完全不带。" }
+  }
+}

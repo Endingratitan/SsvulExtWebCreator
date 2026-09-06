@@ -40,7 +40,7 @@ class SitePages {
             for (File f : info.css) css.append(sb.readFile(f)).append('\n');
         }
         if (js.length() > 0) {
-            sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/js/web_global.js"), js.toString(), 2));
+            sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/js/web_global" + sb.jsSuffix()), js.toString(), 2));
             sb.webGlobalJs = true;
         }
         if (css.length() > 0) {
@@ -54,7 +54,7 @@ class SitePages {
             StringBuilder j2 = new StringBuilder(), c2 = new StringBuilder();
             for (File f : info.js) j2.append(sb.readFile(f)).append('\n');
             for (File f : info.css) c2.append(sb.readFile(f)).append('\n');
-            if (j2.length() > 0) sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/js/" + flat + ".js"), j2.toString(), 2));
+            if (j2.length() > 0) sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/js/" + flat + sb.jsSuffix()), j2.toString(), 2));
             if (c2.length() > 0) sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/css/" + flat + ".css"), c2.toString(), 2));
         }
     }
@@ -93,9 +93,49 @@ class SitePages {
             }
         }
 
+        // code-ui：items 数组 + 块级属性；全部默认关/缺省（解析后注入 options 通道给渲染层）
+        List<String> codeUiItems = new ArrayList<>();
+        JsonNode cu = root.path("code-ui");
+        if (cu.isObject()) {
+            JsonNode it = cu.path("items");
+            if (it.isArray()) for (JsonNode e : it) if (e.isTextual()) codeUiItems.add(e.asText());
+            String bg = cu.path("bg").asText("");
+            if (!bg.isEmpty()) {
+                boolean ok = bg.startsWith("pre-assets/") || bg.startsWith("http://") || bg.startsWith("https://")
+                        || sb.buckets.keySet().stream().anyMatch(b -> bg.startsWith(b + "/"));
+                if (!ok) sb.errors.add("code-ui.bg 形态不合法（pre-assets/、http(s)://、bucket 调用名）: " + bg);
+                else sb.mdOptions.put("codeui.bg", bg);
+            }
+            if (cu.path("rounded").asBoolean(false)) sb.mdOptions.put("codeui.rounded", "true");
+            String lp = cu.path("label-pos").asText("");
+            if (!lp.isEmpty()) sb.mdOptions.put("codeui.label-pos", lp);
+        }
+        sb.mdOptions.put("codeui.items", String.join(",", codeUiItems));   // 空 = 无外壳（字节兼容）
+
+        // 页面级引擎链（缺省 = hljs；未知名警告剔除并回退 hljs）；本页 md 渲染全程使用
+        List<String> engNames = new ArrayList<>();
+        JsonNode eng = root.path("engine");
+        if (eng.isTextual()) engNames.add(eng.asText());
+        else if (eng.isArray()) for (JsonNode e : eng) if (e.isTextual()) engNames.add(e.asText());
+        sb.engineChain = EngineRegistry.resolve(engNames, sb::warn);
+        sb.engineAssets = List.of();
+        MarkdownRenderer.setCodeEngine(sb.engineChain);
+
         Set<String> pageTypes = new LinkedHashSet<>();
         boolean[] hasMd = {false};
-        String content = renderDivGroup("", root.path("page"), "页面 " + name, pageTypes, hasMd);
+        boolean[] hasCode = {false};
+        sb.hasCode = false;
+        sb.copyJsNeeded = false;
+        sb.injectCodeuiCss = false;
+        sb.injectCodeuiJs = false;
+        String content = renderDivGroup("", root.path("page"), "页面 " + name, pageTypes, hasMd, hasCode, sb.mdOptions);
+        // 性能门控：本页确有块落到带客户端资源的成员（如 hljs）才注入引擎资源
+        if (sb.engineChain.clientAssetsNeeded()) sb.engineAssets = sb.engineChain.autoAssets();
+        // CODEUI 注入门控：站点级文件存在 + 本页有代码块；copy-btn 项触发内置复制脚本
+        sb.hasCode = hasCode[0];
+        sb.injectCodeuiCss = sb.codeuiCssExists && hasCode[0];
+        sb.injectCodeuiJs = sb.codeuiJsExists && hasCode[0];
+        sb.copyJsNeeded = hasCode[0] && codeUiItems.contains("copy-btn");
 
         StringBuilder pageJs = new StringBuilder(), pageCss = new StringBuilder();
         for (String type : pageTypes) {
@@ -109,11 +149,11 @@ class SitePages {
         String pageFileJs, pageFileCss;
         int pageFileDepth;
         if (p.index) {
-            pageFileJs = "assets/index/index.js";
+            pageFileJs = "assets/index/index" + sb.jsSuffix();
             pageFileCss = "assets/index/index.css";
             pageFileDepth = 2;
         } else {
-            pageFileJs = "pages/" + p.rel + name + "/" + name + ".js";
+            pageFileJs = "pages/" + p.rel + name + "/" + name + sb.jsSuffix();
             pageFileCss = "pages/" + p.rel + name + "/" + name + ".css";
             pageFileDepth = depth;
         }
@@ -143,11 +183,26 @@ class SitePages {
 
     void buildBareMd(SiteScan.Page p) {
         sb.mdOptions = Collections.emptyMap();   // 裸 md 无 json，全用默认
+        // 裸页不注入引擎资源（性能优先：省流量）；渲染仍走默认 hljs 链（纯转义，与 v1 输出一致）
+        sb.engineChain = EngineRegistry.resolve(List.of("hljs"), sb::warn);
+        sb.engineAssets = List.of();
+        MarkdownRenderer.setCodeEngine(sb.engineChain);
+        sb.hasCode = false;
+        sb.copyJsNeeded = false;
+        sb.injectCodeuiCss = false;
+        sb.injectCodeuiJs = false;
         String outRel = "pages/" + p.rel + p.name + "/index.html";
         int depth = SiteBuilder.depthOf("pages/" + p.rel + p.name);
         String content;
         try {
-            content = MarkdownRenderer.render(sb.readFile(p.file), "pages/" + p.rel + p.name + ".md");
+            MarkdownRenderer.MdResult mr = MarkdownRenderer.renderParts(sb.readFile(p.file),
+                    "pages/" + p.rel + p.name + ".md", Collections.emptyMap());
+            content = MarkdownRenderer.joinResult(mr);
+            if (mr.hasCode()) {   // 裸页有代码块时同样注入站点级 CODEUI
+                sb.hasCode = true;
+                sb.injectCodeuiCss = sb.codeuiCssExists;
+                sb.injectCodeuiJs = sb.codeuiJsExists;
+            }
         } catch (RuntimeException e) {
             sb.errors.add(e.getMessage());
             return;
@@ -156,7 +211,7 @@ class SitePages {
         sb.refPreset("md/css/md.css");
         String links = "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth) + "assets/pre/md/css/md.css\">\n"
                 + (sb.webGlobalCss ? "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth) + "assets/css/web_global.css\">\n" : "");
-        String scripts = sb.webGlobalJs ? "  <script src=\"" + SiteBuilder.depthPrefix(depth) + "assets/js/web_global.js\"></script>\n" : "";
+        String scripts = sb.webGlobalJs ? "  <script src=\"" + SiteBuilder.depthPrefix(depth) + "assets/js/web_global" + sb.jsSuffix() + "\"></script>\n" : "";
         base = base.replace("{{lang}}", "zh-CN")
                    .replace("{{htmlattrs}}", "")
                    .replace("{{title}}", MarkdownRenderer.escapeHtml(p.name))
@@ -173,7 +228,8 @@ class SitePages {
     // ---- div 渲染 ----
 
     private String renderDivGroup(String parentId, JsonNode group, String pageSrc,
-                                  Set<String> pageTypes, boolean[] hasMd) {
+                                  Set<String> pageTypes, boolean[] hasMd, boolean[] hasCode,
+                                  Map<String, String> inheritedMd) {
         if (group == null || !group.isObject()) return "";
         List<Map.Entry<String, JsonNode>> list = new ArrayList<>();
         Iterator<Map.Entry<String, JsonNode>> it = group.fields();
@@ -181,12 +237,13 @@ class SitePages {
         list.sort(Comparator.comparingInt(e -> Integer.parseInt(e.getKey().substring("div-".length()))));
         StringBuilder sb2 = new StringBuilder();
         for (Map.Entry<String, JsonNode> e : list)
-            sb2.append(renderDiv(parentId, e.getKey(), e.getValue(), pageSrc, pageTypes, hasMd));
+            sb2.append(renderDiv(parentId, e.getKey(), e.getValue(), pageSrc, pageTypes, hasMd, hasCode, inheritedMd));
         return sb2.toString();
     }
 
     private String renderDiv(String parentId, String key, JsonNode div, String pageSrc,
-                             Set<String> pageTypes, boolean[] hasMd) {
+                             Set<String> pageTypes, boolean[] hasMd, boolean[] hasCode,
+                             Map<String, String> inheritedMd) {
         String id = parentId.isEmpty() ? key : parentId + "-" + key.substring("div-".length());
         String type = div.path("type").asText();
         SiteScan.DivInfo info = sb.scan.divOf(type);
@@ -202,6 +259,18 @@ class SitePages {
         appendDataAttrs(sb2, div.get("params"));
         sb2.append(">\n");
 
+        // div 级 md-options：级联覆盖（只覆盖本 div 写出的键，其余继承页面级/父 div）
+        Map<String, String> mdOpts = inheritedMd;
+        JsonNode mo = div.get("md-options");
+        if (mo != null && mo.isObject()) {
+            mdOpts = new LinkedHashMap<>(inheritedMd);
+            Iterator<Map.Entry<String, JsonNode>> mit = mo.fields();
+            while (mit.hasNext()) {
+                Map.Entry<String, JsonNode> me = mit.next();
+                mdOpts.put(me.getKey(), me.getValue().asText());
+            }
+        }
+
         boolean hasTemplate = info != null && info.template != null;
         String content = null;
         String footnotes = "";
@@ -209,7 +278,8 @@ class SitePages {
             content = div.get("raw").asText();
         } else if (div.has("markdown")) {
             hasMd[0] = true;
-            MarkdownRenderer.MdResult mr = resolveMd(div.get("markdown").asText(), pageSrc);
+            MarkdownRenderer.MdResult mr = resolveMd(div.get("markdown").asText(), pageSrc, mdOpts, id + "-");
+            if (mr.hasCode()) hasCode[0] = true;
             if (hasTemplate) {
                 content = mr.mdBody();
                 footnotes = mr.footnotes();   // 模板含 {{footnotes}} 时注入该处
@@ -217,7 +287,7 @@ class SitePages {
                 content = MarkdownRenderer.joinResult(mr);   // 无模板：脚注区并入 md-body 末尾
             }
         }
-        String children = renderDivGroup(id, div.get("divs"), pageSrc, pageTypes, hasMd);
+        String children = renderDivGroup(id, div.get("divs"), pageSrc, pageTypes, hasMd, hasCode, mdOpts);
 
         if (hasTemplate) {
             String t = sb.readFile(info.template);
@@ -280,10 +350,11 @@ class SitePages {
         return out;
     }
 
-    private MarkdownRenderer.MdResult resolveMd(String field, String pageSrc) {
+    private MarkdownRenderer.MdResult resolveMd(String field, String pageSrc,
+                                                Map<String, String> options, String anchorPrefix) {
         MarkdownRenderer.MdResult empty = new MarkdownRenderer.MdResult("", "");
         if (!field.startsWith("@")) {
-            try { return MarkdownRenderer.renderParts(field, pageSrc, sb.mdOptions); }
+            try { return MarkdownRenderer.renderParts(field, pageSrc, options, anchorPrefix); }
             catch (RuntimeException e) { sb.errors.add(e.getMessage()); return empty; }
         }
         String path = field.substring(1);
@@ -296,7 +367,7 @@ class SitePages {
             sb.errors.add(pageSrc + " 的 md 文件不存在或非 md: " + field);
             return empty;
         }
-        try { return MarkdownRenderer.renderParts(sb.readFile(f), path, sb.mdOptions); }
+        try { return MarkdownRenderer.renderParts(sb.readFile(f), path, options, anchorPrefix); }
         catch (RuntimeException e) { sb.errors.add(e.getMessage()); return empty; }
     }
 }

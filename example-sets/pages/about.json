@@ -1,0 +1,14 @@
+{
+  "name": "about",
+  "title": "关于",
+  "theme": "light",
+  "page": {
+    "div-1": { "type": "navbar", "params": { "brand": "Ssvul" } },
+    "div-2": { "type": "article", "params": { "title": "关于" },
+      "markdown": "# 关于\n\n这是普通页面示例：显式 `theme: light`，生成 pages/about/index.html 与同级的 about.js / about.css（navbar 与 card 的 js/css 聚合而来）。\n\n## 更多文本\n\n这一段用于检验普通页面输出与页面级资源的鲁棒性；本页无代码块，因此零引擎资源、零 CODEUI 注入（hasCode 门控）。" },
+    "div-3": { "type": "card", "params": { "title": "卡片 div" },
+      "markdown": "card 是 sets/divs 下的普通模板 div（template.html + card.js + card.css）：其 js/css 聚合进 about.js/about.css 页面文件。" },
+    "div-4": { "type": "card", "params": { "title": "站内互链" },
+      "markdown": "[严格模式演示](@page/strict-demo) [多级目录指南](@page/docs/guide)" }
+  }
+}

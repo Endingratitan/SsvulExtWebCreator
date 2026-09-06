@@ -8,6 +8,9 @@
  */
 package io.github.endingratitan.Integra;
 
+import io.github.endingratitan.JSMinifier.JsMinifier;
+import io.github.endingratitan.JSMinifier.JsMinifierRegistry;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -51,6 +54,13 @@ public class SiteBuilder {
     boolean webGlobalJs, webGlobalCss;
     boolean offline;                                           // offline=1：bucket 引用本地替换
     boolean outerDirExists;                                    // sets/outer 目录存在（对照警告用）
+    EngineChain engineChain;                                   // 当前页引擎链（写盘前查询资源注入）
+    List<String> engineAssets = List.of();                     // 本页要注入的引擎自动资源（性能门控后）
+    final Map<String, File> codeuiFiles = new LinkedHashMap<>();  // sets/global/codeui 的站点级文件
+    boolean codeuiCssExists, codeuiJsExists;                   // CODEUI.css/js 存在性（注入门控之一）
+    boolean hasCode, copyJsNeeded, injectCodeuiCss, injectCodeuiJs;   // 每页：hasCode 门控 + 注入标记
+    boolean minifyOn = true;                                       // minify=0 可关（默认开，站点级）
+    String minifierName = "simple";                                // minifier 键（v3 预留 closure）
 
     SiteScan scan;   // divOf 供页面组装使用
 
@@ -87,6 +97,7 @@ public class SiteBuilder {
         scan.scanData();
         scan.scanFavicon();
         scan.scanOuter();
+        scan.scanGlobal();
         pagesBuilder.buildGlobals();
         for (SiteScan.Page p : pages) {
             if (p.bareMd) pagesBuilder.buildBareMd(p); else pagesBuilder.buildJsonPage(p);
@@ -112,7 +123,48 @@ public class SiteBuilder {
         readmeOn = "1".equals(lastOf("readme"));
         localFavicon = "1".equals(lastOf("local-favicon"));
         offline = "1".equals(lastOf("offline"));
+        String mv = lastOf("minify");
+        minifyOn = mv.isEmpty() || "1".equals(mv);           // 默认开
+        String mn = lastOf("minifier");
+        minifierName = mn.isEmpty() ? "simple" : mn;
         envLoaded = true;
+        // U1 词表：每次构建都重建 simple 实例（含/不含用户词表），避免注册表跨构建残留旧词
+        Map<String, Map<String, String>> userWords = new LinkedHashMap<>();
+        List<String> ew = env.get("engine-words");
+        if (ew != null) for (String raw : ew) loadEngineWords(raw, userWords);
+        EngineRegistry.register("simple", new LexerCodeEngine(userWords));
+    }
+
+    /** 解析 engine-words=(语言,data/词表路径)；词表行：#注释 | 词 | 词:tokenid（默认 kw） */
+    private void loadEngineWords(String raw, Map<String, Map<String, String>> userWords) {
+        String v = raw.trim();
+        if (v.startsWith("(") && v.endsWith(")")) v = v.substring(1, v.length() - 1).trim();
+        int comma = v.indexOf(',');
+        if (comma <= 0 || comma == v.length() - 1) {
+            errors.add("engine-words 值需为 (语言,data/路径) 格式: " + raw);
+            return;
+        }
+        String lang = v.substring(0, comma).trim();
+        String path = v.substring(comma + 1).trim();
+        if (!lang.matches("[a-z0-9]+(-[a-z0-9]+)*")) { errors.add("engine-words 语言名不合法（kebab-case）: " + lang); return; }
+        if (!path.startsWith("data/")) { errors.add("engine-words 词表文件须位于 sets/data/ 下: " + path); return; }
+        File f = new File(setsDir, path);
+        if (!f.isFile()) { errors.add("engine-words 词表文件不存在: sets/" + path); return; }
+        Map<String, String> m = userWords.computeIfAbsent(lang, k -> new LinkedHashMap<>());
+        String[] lines = readFile(f).split("\n");
+        for (int ln = 0; ln < lines.length; ln++) {
+            String s = lines[ln].trim();
+            if (s.isEmpty() || s.startsWith("#")) continue;
+            int colon = s.indexOf(':');
+            String word = colon < 0 ? s : s.substring(0, colon).trim();
+            String tok = colon < 0 ? "kw" : s.substring(colon + 1).trim();
+            if (word.isEmpty() || word.contains(" ")) { errors.add("engine-words 词表非法词（第 " + (ln + 1) + " 行）: " + s); continue; }
+            if (!LexerCodeEngine.TOKEN_IDS.contains(tok)) {
+                errors.add("engine-words token 未知（第 " + (ln + 1) + " 行，可用 tk id 见 token-map.js）: " + s);
+                continue;
+            }
+            m.put(word, tok);
+        }
     }
 
     private String lastOf(String key) {
@@ -220,6 +272,17 @@ public class SiteBuilder {
 
     /** 构建警告（控制台输出，不阻断） */
     void warn(String msg) { warnings.add(msg); }
+
+    /** 生成物 js 后缀：minify=1 → .min.js；0 → .js（字节兼容） */
+    String jsSuffix() { return minifyOn ? ".min.js" : ".js"; }
+
+    /** 经注册表压缩（Closure 预留缝）；降级说明并入构建警告；异常兜底原文 */
+    String minifyJs(String js) {
+        JsMinifier m = JsMinifierRegistry.get(minifierName);
+        JsMinifier.Result r = m.minify(js);
+        for (String note : r.notes()) warn(note);
+        return r.code();
+    }
 
     String joinErrors() {
         StringBuilder sb = new StringBuilder("站点构建错误（" + errors.size() + " 条）：\n");

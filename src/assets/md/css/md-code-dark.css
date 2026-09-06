@@ -15,6 +15,7 @@
   --md-code-prop: #ff79c6; --md-code-tag: #ff5c7a;  --md-code-sel: #7be0c5;
   --md-code-meta: #9a9bff; --md-code-op: #ffd28f;  --md-code-punct: #9aa4b2;
   --md-code-tpl: #ff8ac2; --md-code-regex: #ff7b72;
+  --codeui-radius: 10px;
 }
 [data-theme="dark"] body { background: #1b1f2a; color: #e6e9ee; }
 [data-theme="dark"] .md-body a { color: #7ab8ff; }
