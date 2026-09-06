@@ -123,4 +123,50 @@ public class SiteBuilderTest {
         // div 类型不存在 + 站内互链目标不存在 都会被收集
         assertTrue(e.getMessage().contains("站内互链目标不存在"), e.getMessage());
     }
+
+    @Test
+    void outerOfflineSubstitution() throws Exception {
+        File sets = tmp.resolve("sets").toFile();
+        File out = tmp.resolve("output").toFile();
+        write(new File(sets, "Environment.config"),
+                "cname=example.com\noffline=1\nbucket=(bk,https://bucket.example.com)\n");
+        write(new File(sets, "outer/bk/img/logo.png"), "PNGDATA");
+        write(new File(sets, "divs/t/template.html"), "<div>{{content}}</div>");
+        write(new File(sets, "pages/INDEX.json"),
+                "{\"name\":\"INDEX\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"![图](bk/img/logo.png)\"}}}");
+        SiteBuilder.build(sets, out, new File("src/assets"));
+        String index = Files.readString(new File(out, "index.html").toPath());
+        assertTrue(index.contains("assets/outer/bk/img/logo.png"), index);
+        assertFalse(index.contains("bucket.example.com"), index);   // 本地替换后不再出现线上域名
+        assertTrue(new File(out, "assets/outer/bk/img/logo.png").isFile());
+    }
+
+    @Test
+    void outerOfflineMissErrors() throws Exception {
+        File sets = tmp.resolve("sets").toFile();
+        File out = tmp.resolve("output").toFile();
+        write(new File(sets, "Environment.config"),
+                "cname=example.com\noffline=1\nbucket=(bk,https://bucket.example.com)\n");
+        write(new File(sets, "divs/t/template.html"), "<div>{{content}}</div>");
+        write(new File(sets, "pages/INDEX.json"),
+                "{\"name\":\"INDEX\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"![图](bk/missing.png)\"}}}");
+        RuntimeException e = assertThrows(RuntimeException.class, () ->
+                SiteBuilder.build(sets, out, new File("src/assets")));
+        assertTrue(e.getMessage().contains("未在 outer 镜像"), e.getMessage());
+    }
+
+    @Test
+    void outerOnlineKeepsUrl() throws Exception {
+        File sets = tmp.resolve("sets").toFile();
+        File out = tmp.resolve("output").toFile();
+        write(new File(sets, "Environment.config"),
+                "cname=example.com\nbucket=(bk,https://bucket.example.com)\n");
+        write(new File(sets, "outer/bk/img/logo.png"), "PNGDATA");   // outer 存在 → 对照警告生效（未命中的引用）
+        write(new File(sets, "divs/t/template.html"), "<div>{{content}}</div>");
+        write(new File(sets, "pages/INDEX.json"),
+                "{\"name\":\"INDEX\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"![图](bk/other.png)\"}}}");
+        SiteBuilder.build(sets, out, new File("src/assets"));   // 不抛异常，仅警告
+        String index = Files.readString(new File(out, "index.html").toPath());
+        assertTrue(index.contains("https://bucket.example.com/other.png"), index);
+    }
 }

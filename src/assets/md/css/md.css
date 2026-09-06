@@ -84,3 +84,21 @@
 .md-code .hljs-punctuation { color: var(--md-code-punct); }
 .md-code .hljs-template-variable { color: var(--md-code-tpl); }
 .md-code .hljs-regexp { color: var(--md-code-regex); }
+
+/* 脚注（end 模式脚注区 + inline 模式就地块） */
+.md-footnotes { font-size: 85%; color: #5a636e; margin-top: 2em; }
+.md-footnotes hr { border: none; border-top: 1px solid #d8dee7; margin: 1em 0; }
+.md-footnotes ol { padding-left: 1.5em; margin: 0; }
+.md-footnotes li { margin: .25em 0; }
+.md-fn-back { text-decoration: none; margin-left: .3em; }
+.md-footnote { font-size: 85%; color: #5a636e; margin: .5em 0; }
+
+/* 构建期目录（md-options.toc） */
+.md-toc { font-size: 90%; border-left: 3px solid #c2cbda; padding-left: 1em; margin: 0 0 1.5em; }
+.md-toc ul { list-style: none; padding-left: 0; margin: 0; }
+.md-toc li { margin: .2em 0; }
+.md-toc .toc-h3 { padding-left: 1.2em; }
+.md-toc .toc-h4 { padding-left: 2.4em; }
+.md-toc .toc-h5, .md-toc .toc-h6 { padding-left: 3.6em; }
+.md-toc a { color: inherit; text-decoration: none; }
+.md-toc a:hover { color: #3b5bdb; }

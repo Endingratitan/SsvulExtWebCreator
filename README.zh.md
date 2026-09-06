@@ -40,6 +40,7 @@ bucket键的值将以数组存储，允许多次输入；其他键以最后一�
 | categories    | divs中是否需要一中间层目录作为categories，需要1，不要0，默认为0  |
 | readme        | 会不会在output中添加readme等md文件，需要为1，不要为0，默认为0    |
 | local-favicon | favicon目录是在项目中还是云端，0为项目，1为bucket，默认0         |
+| offline       | 离线模式：1=是（bucket 引用命中 outer/ 镜像时本地替换进 assets/outer/，未命中报错）；0=否（默认，输出线上 URL；outer 目录存在时对未命中的引用发警告） |
 
 #### divs/
 divs里面可有子目录作为categories，所有子目录下再有单独的div类型目录；
@@ -80,7 +81,9 @@ output/pages
 用于被其他引用（md 中经 @data/... 引用）
 #### outer/
 作为bucket的本地复制，
-下面有若干bucket_name命名的子目录，其内容与对应云端结构一模一样
+下面有若干以调用名命名的子目录（如 outer/bk/），其内容与对应云端结构一模一样
+offline=1 时：bucket 引用命中此处 → 复制进 output/assets/outer/<调用名>/... 并替换引用为本地路径（离线全图预览）；
+offline=0 时：输出线上 URL，但若 outer 目录存在而引用未命中 → 构建警告（对照功能）
 #### favicon/
 若有，将被复制到output/favicon
 
@@ -88,19 +91,22 @@ output/pages
 使用 jackson 读取，并按 `page.schema.json` 校验：未知键、类型不符、重复键均报错；md 渲染错误为收集式（一次最多报 20 条，带行号与修复建议）。
 
 #### 顶层键
-| 键 | 类型 | 作用 |
-|---|---|---|
-| name | string | 页面名（kebab-case），缺省用 json 文件名；生成 pages/<structures...>/<name>/index.html |
-| title / lang / description | string | <title>、<html lang>（默认 zh-CN）、<meta name="description"> |
-| favicon | string | 图标地址：http(s)://、pre-assets/、@favicon/文件名（sets/favicon/ 下）、bucket 调用名路径 |
-| head | string[] | 追加进 <head> 的原生 HTML 片段 |
-| theme | string | 初始主题（如 light/dark）：生成 data-theme + 防闪烁内联脚本，并自动引用 md-theme.js 预设 |
-| md-css | string | md 主题 css（pre-assets/、bk/、http(s)://）；缺省用预设 pre-assets/md/css/md.css；无 md 内容时忽略 |
-| md-js | string[] | md 增强 js（顺序保序；如 md-highlight.js、md-math.js）；有 md 内容时注入 |
-| deps | string[] | 依赖：http(s):// 外源、pre-assets/ 预设、global:<type> 显式引用 .global div |
-| page | object | 内容区：div 组合树，键为 div-ID |
+
+| 键                         | 类型     | 作用                                                                                               |
+|----------------------------|----------|----------------------------------------------------------------------------------------------------|
+| name                       | string   | 页面名（kebab-case），缺省用 json 文件名；生成 pages/<structures...>/<name>/index.html             |
+| title / lang / description | string   | <title>、<html lang>（默认 zh-CN）、<meta name="description">                                      |
+| favicon                    | string   | 图标地址：http(s)://、pre-assets/、@favicon/文件名（sets/favicon/ 下）、bucket 调用名路径          |
+| head                       | string[] | 追加进 <head> 的原生 HTML 片段                                                                     |
+| theme                      | string   | 初始主题（如 light/dark）：生成 data-theme + 防闪烁内联脚本，并自动引用 md-theme.js 预设           |
+| md-css                     | string   | md 主题 css（pre-assets/、bk/、http(s)://）；缺省用预设 pre-assets/md/css/md.css；无 md 内容时忽略 |
+| md-js                      | string[] | md 增强 js（顺序保序；如 md-highlight.js、md-math.js）；有 md 内容时注入                           |
+| deps                       | string[] | 依赖：http(s):// 外源、pre-assets/ 预设、global:<type> 显式引用 .global div                        |
+| page                       | object   | 内容区：div 组合树，键为 div-ID                                                                    |  
+
 
 #### page（div 组合树）
+
 - 键名 `div-ID`（正整数 ID）；按 ID 数值升序组装，允许跳号，同页重复 ID 报错；div-ID 渲染为根元素 id，子 div 按 div-2-1 拼接
 - 每个 div 对象：
   - `type`（必填）：对应 sets/divs/ 下目录（categories=1 时写作 category/divname），未命中回落 src/assets/divs/
@@ -111,10 +117,20 @@ output/pages
   - `divs`：嵌套子组合（同 div-ID 规则）
 
 #### md 语法（v1 子集）
-标题（# 后须空格）、段落、**粗**/*斜*/_斜_（_ 两侧不得同时为字母数字）、`行内代码`、~~删除~~、
+标题（# 后须空格，自动分配锚点 id s1/s2…；`#锚点` 链接放行不校验）、段落、**粗**/*斜*/_斜_（_ 两侧不得同时为字母数字）、`行内代码`、~~删除~~、
 [链接](url)、![图片](url)、两层列表（含任务列表 - [ ]）、引用块（每行须 >，递归，两层）、围栏代码块（```lang）、
 表格（:--- 对齐）、$...$ 行内 / $$...$$ 块数学、[[key]] 按键、*** 分隔线、<https://> 自动链接、\ 转义（含 \$ 强制输出 $）。
 链接/图片 URL 白名单：http(s)://、pre-assets/、@data/、@page/（站内互链）、#锚点、bucket 调用名。
+
+脚注：引用 `[^n]`（尊重用户编号、可重复引用）与 `[^.]`（自动补最小空位，显式编号全部占位）；
+定义行 `[^n]: 内容`（文档顶层、单行、仅行内 md）与 `[.^]: 内容`（懒惰定义，按顺序配给未配对引用）；
+重复定义/引用未定义报错，定义多出仅警告；定义内再写 `[^x]` 按字面（不支持嵌套，与 GitHub 一致）；
+`footnote-display: end`（默认：脚注区放 md-body 末尾；div 模板可用 `{{footnotes}}` 占位符接管位置）| `inline`（定义处就地显示）。
+
+md 渲染选项（页面 json 顶层 `md-options`，全部有默认值可不写）：
+- `mode`: `simple`（默认，GitHub 兼容：--- 分隔线、原生 HTML、不限列表嵌套、未闭合围栏不报错）| `strict`（严格报错，列表嵌套限两层）
+- `footnote-display`: `end`（默认，脚注统一放）| `inline`（就地显示）
+- `toc`: `true` 构建期生成目录（md-body 顶部，h2~h6 入目录、h1 排除；默认 false）
 未识别的块级语法、未闭合代码块、--- 分隔线、HTML 行 → 报错（带行号与修复建议）。
 
 #### 特殊文件
@@ -134,6 +150,7 @@ output/pages
   }
 }
 ```
+
 ### src/assets/
 官方预设目录（作为 sets/ 部分目录的预设），按功能分类：
 - `page/`：页面外壳 BASE.html（生成器内部使用）
@@ -154,3 +171,4 @@ output/pages
 - 必须保留各源文件头部的版权与项目来源声明，以及根目录的 `LICENSE` 与 `NOTICE`
 - 对 MPL 覆盖文件的修改，须同样以 MPL-2.0 分发（文件级 copyleft）；工具生成的站点产物不受此约束，但站点内随附的预设内容（如 BASE 模板头部）需保留其来源声明
 - `src/assets/lib/` 下的第三方 vendor（hljs BSD-3、katex MIT/OFL）保持各自原许可
+

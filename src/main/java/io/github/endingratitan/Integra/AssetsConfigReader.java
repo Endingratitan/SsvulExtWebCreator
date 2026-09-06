@@ -30,7 +30,7 @@ public class AssetsConfigReader {
 
     /** config 允许的键（未知键报错） */
     private static final Set<String> CONFIG_KEYS =
-            Set.of("cname", "server", "bucket", "categories", "readme", "local-favicon");
+            Set.of("cname", "server", "bucket", "categories", "readme", "local-favicon", "offline");
 
     public AssetsConfigReader(File configFile) {
         this.ConfigFile = configFile;

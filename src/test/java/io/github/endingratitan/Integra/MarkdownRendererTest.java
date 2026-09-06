@@ -10,6 +10,8 @@ package io.github.endingratitan.Integra;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 public class MarkdownRendererTest {
@@ -18,7 +20,7 @@ public class MarkdownRendererTest {
     void headingAndEmphasis() {
         String html = MarkdownRenderer.render("# 标题\n\n**粗** *斜* _中文斜_ my_var `code` ~~删~~ [[Ctrl]]+[[C]]\n");
         assertTrue(html.startsWith("<div class=\"md-body\">"));
-        assertTrue(html.contains("<h1>标题</h1>"));
+        assertTrue(html.contains("<h1 id=\"s1\">标题</h1>"));
         assertTrue(html.contains("<strong>粗</strong>"));
         assertTrue(html.contains("<em>斜</em>"));
         assertTrue(html.contains("<em>中文斜</em>"));
@@ -48,26 +50,79 @@ public class MarkdownRendererTest {
     }
 
     @Test
+    void tocBuildTime() {
+        String html = MarkdownRenderer.render("# 标题\n\n## 一\n\n### 子\n\n## 二\n", "t", Map.of("toc", "true"));
+        assertTrue(html.contains("<nav class=\"md-toc\">"), html);
+        assertTrue(html.contains("<li class=\"toc-h2\"><a href=\"#s2\">一</a></li>"), html);
+        assertTrue(html.contains("<li class=\"toc-h3\"><a href=\"#s3\">子</a></li>"), html);
+        assertFalse(html.contains("href=\"#s1\""), html);   // h1 不入目录
+        assertTrue(html.indexOf("md-toc") < html.indexOf("<h1"), html);   // 目录在正文顶部
+
+        assertFalse(MarkdownRenderer.render("# 标题\n\n## 一\n").contains("md-toc"));   // 默认关闭
+        assertFalse(MarkdownRenderer.render("段落\n", "t", Map.of("toc", "true")).contains("md-toc"));   // 无标题无目录
+    }
+
+    @Test
+    void headingAnchors() {
+        String html = MarkdownRenderer.render("# 一\n\n## 二\n\n### 三\n\n[跳](#s2)\n");
+        assertTrue(html.contains("<h1 id=\"s1\">一</h1>"));
+        assertTrue(html.contains("<h2 id=\"s2\">二</h2>"));
+        assertTrue(html.contains("<h3 id=\"s3\">三</h3>"));
+        assertTrue(html.contains("href=\"#s2\""));   // 锚点链接放行不校验
+    }
+
+    @Test
     void nestedListAndStrictErrors() {
         assertTrue(MarkdownRenderer.render("- a\n  - b\n").contains("<ul>"));
+        Map<String, String> strict = Map.of("mode", "strict");
 
         RuntimeException deep = assertThrows(RuntimeException.class, () ->
-                MarkdownRenderer.render("- a\n  - b\n    - c\n", "t"));
+                MarkdownRenderer.render("- a\n  - b\n    - c\n", "t", strict));
         assertTrue(deep.getMessage().contains("列表嵌套超过两层"));
+        assertTrue(deep.getMessage().contains("▸ 本行"));   // 错误上下文三行显示
 
         RuntimeException dash = assertThrows(RuntimeException.class, () ->
-                MarkdownRenderer.render("---\n", "t"));
+                MarkdownRenderer.render("---\n", "t", strict));
         assertTrue(dash.getMessage().contains("请改用 ***"));
     }
 
     @Test
     void errorCollectionMultiple() {
         RuntimeException e = assertThrows(RuntimeException.class, () ->
-                MarkdownRenderer.render("---\n\n[x](a b)\n\n[bad](//x)\n", "t"));
+                MarkdownRenderer.render("---\n\n[x](a b)\n\n[bad](//x)\n", "t", Map.of("mode", "strict")));
         String msg = e.getMessage();
         assertTrue(msg.contains("第 1 行"), msg);
         assertTrue(msg.contains("第 3 行"), msg);
         assertTrue(msg.contains("第 5 行"), msg);   // 一次报多条
+    }
+
+    @Test
+    void simpleModeLenient() {
+        // --- 分隔线（GitHub 行为）
+        assertTrue(MarkdownRenderer.render("---\n", "t").contains("<hr>"));
+        // 块级 HTML 直出
+        assertTrue(MarkdownRenderer.render("<div class='x'>hi</div>\n", "t")
+                .contains("<div class='x'>hi</div>"));
+        // 行内 HTML 直出
+        assertTrue(MarkdownRenderer.render("a <b>bold</b> c\n", "t")
+                .contains("a <b>bold</b> c"));
+        // 3 层列表不再报错
+        assertTrue(MarkdownRenderer.render("- a\n  - b\n    - c\n", "t").contains("<ul>"));
+        // 未闭合围栏不报错（吞到文件尾）
+        assertTrue(MarkdownRenderer.render("```java\nint x;\n", "t").contains("language-java"));
+        // 表格列数不一致不报错（按表头列数截断）
+        assertTrue(MarkdownRenderer.render("| a | b |\n|---|---|\n| 1 |\n", "t")
+                .contains("<table class=\"md-table\">"));
+    }
+
+    @Test
+    void listFenceAndTableEscape() {
+        String out = MarkdownRenderer.render(
+                "- 项\n  ```java\n  int x;\n  ```\n- 后项\n\n- 表项\n  | a |\n| --- |\n| 1 |\n");
+        assertTrue(out.contains("language-java"), out);
+        assertTrue(out.contains("int x;"), out);            // 围栏内容完整
+        assertTrue(out.contains("后项"), out);
+        assertTrue(out.contains("<table class=\"md-table\">"), out);   // 表格逃逸后仍成表
     }
 
     @Test
@@ -85,7 +140,7 @@ public class MarkdownRendererTest {
     @Test
     void crlfBomAndHardBreak() {
         String html = MarkdownRenderer.render("\uFEFF# 标题\r\n\r\n行一  \r\n行二\r\n");
-        assertTrue(html.contains("<h1>标题</h1>"));
+        assertTrue(html.contains("<h1 id=\"s1\">标题</h1>"));
         assertTrue(html.contains("行一<br>\n行二"));
     }
 

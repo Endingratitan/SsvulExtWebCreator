@@ -1,6 +1,7 @@
 {
   "name": "INDEX",
   "theme": "dark",
+  "md-options": { "toc": true },
   "deps": [
     "pre-assets/lib/katex/katex.min.css",
     "pre-assets/lib/katex/katex.min.js",
@@ -14,7 +15,7 @@
   "page": {
     "div-1": { "type": "navbar", "params": { "brand": "Ssvul" } },
     "div-2": { "type": "article", "params": { "title": "示例" },
-      "markdown": "# 示例\n\n价格 \\$5 与数学 $x^2$，按键 [[Ctrl]]+[[C]]\n\n| a | b |\n|---|---|\n|1|2|\n\n```java\nint x = 1;\n```\n\n[博文](@page/blog/post) ![图](@data/img/logo.png)" },
+      "markdown": "# 示例\n\n## 小节一\n\n价格 \\$5 与数学 $x^2$，按键 [[Ctrl]]+[[C]]\n\n## 小节二\n\n| a | b |\n|---|---|\n|1|2|\n\n```java\nint x = 1;\n```\n\n注释[^1]与自动[^.]。\n\n[^1]: 显式注\n[.^]: 懒惰注\n\n![bucket图](bk/img/logo.png)\n\n[标题锚点](#s1) [博文](@page/blog/post) ![图](@data/img/logo.png)" },
     "div-3": { "type": "theme-switcher", "params": { "themes": "light,dark", "labels": "亮,暗" } }
   }
 }

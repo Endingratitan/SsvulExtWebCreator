@@ -39,6 +39,16 @@
       "description": "md 增强 js 列表（pre-assets/ 或 http(s)://），顺序保序；仅页面含 md 内容时注入",
       "items": { "type": "string" }
     },
+    "md-options": {
+      "type": "object",
+      "description": "md 渲染选项（全部有默认值，可不写整个键或任一子键）",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string", "enum": ["simple", "strict"], "description": "simple=GitHub 兼容（默认）；strict=严格报错" },
+        "footnote-display": { "type": "string", "enum": ["end", "inline"], "description": "end=脚注统一放（文末或 {{footnotes}} 占位符，默认）；inline=就地显示在定义处" },
+        "toc": { "type": "boolean", "description": "构建期生成目录（md-body 顶部；h2~h6 入目录，h1 排除；默认 false）" }
+      }
+    },
     "deps": {
       "type": "array",
       "description": "页面依赖：http(s):// 外源；pre-assets/ 官方预设；global:<type> 显式引用 .global div。本地 js/css 一律走 divs（三态）或 pre-assets；sets/data/ 只存数据（json/md/图片等），禁止 js/css（生成器扫描报错）",

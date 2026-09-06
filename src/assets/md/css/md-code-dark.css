@@ -26,3 +26,5 @@
 [data-theme="dark"] .md-table th, [data-theme="dark"] .md-table td { border-color: #3a4258; }
 [data-theme="dark"] .md-table th { background: #262d3d; }
 [data-theme="dark"] .md-body .md-code-inline { background: #282f3f; }
+[data-theme="dark"] .md-toc { border-left-color: #5a6b8c; }
+[data-theme="dark"] .md-toc a:hover { color: #7ab8ff; }
