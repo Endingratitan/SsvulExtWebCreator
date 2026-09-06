@@ -369,13 +369,24 @@ public class SiteBuilder {
             for (File f : info.css) pageCss.append(readFile(f)).append('\n');
         }
         boolean hasPageJs = pageJs.length() > 0, hasPageCss = pageCss.length() > 0;
-        String pageDir = p.index ? "" : "pages/" + p.rel + name + "/";
-        if (hasPageJs) queue.add(new Queued(new File(outputDir, pageDir + "page-name.js"), pageJs.toString(), depth));
-        if (hasPageCss) queue.add(new Queued(new File(outputDir, pageDir + "page-name.css"), pageCss.toString(), depth));
+        // 页面文件以页面名命名（<name>.js/.css），与页面 html 同级；INDEX 页特例放 assets/index/
+        String pageFileJs, pageFileCss;
+        int pageFileDepth;
+        if (p.index) {
+            pageFileJs = "assets/index/index.js";
+            pageFileCss = "assets/index/index.css";
+            pageFileDepth = 2;
+        } else {
+            pageFileJs = "pages/" + p.rel + name + "/" + name + ".js";
+            pageFileCss = "pages/" + p.rel + name + "/" + name + ".css";
+            pageFileDepth = depth;
+        }
+        if (hasPageJs) queue.add(new Queued(new File(outputDir, pageFileJs), pageJs.toString(), pageFileDepth));
+        if (hasPageCss) queue.add(new Queued(new File(outputDir, pageFileCss), pageCss.toString(), pageFileDepth));
 
         boolean themeActive = !root.path("theme").asText("").isEmpty();
-        String links = buildLinks(root, hasMd[0], depth) + pageCssTag(hasPageCss);
-        String scripts = buildScripts(root, depth, hasPageJs, themeActive);
+        String links = buildLinks(root, hasMd[0], depth) + pageCssTag(hasPageCss, p.index, name, depth);
+        String scripts = buildScripts(root, depth, hasPageJs, themeActive, p.index, name);
 
         String base = readPreset("page/BASE.html");
         Map<String, String> repl = new LinkedHashMap<>();
@@ -466,6 +477,7 @@ public class SiteBuilder {
         if (info != null && info.template != null) {
             String t = readFile(info.template);
             sb.append(injectTemplate(t, div.get("params"), content, children, pageSrc, type)).append('\n');
+            if (!t.contains("{{content}}") && content != null) sb.append(content).append('\n');
             if (!t.contains("{{children}}") && !children.isEmpty()) sb.append(children);
         } else {
             if (content != null) sb.append(content).append('\n');
@@ -547,11 +559,20 @@ public class SiteBuilder {
             if (mc.isEmpty()) mc = "pre-assets/md/css/md.css";
             sb.append(depTag(mc, depth, true));
         }
+        // theme 键自动带出对应主题 css（md/css/md-code-<theme>.css，不存在则跳过，作者可经 deps 自行引入）
+        String theme = root.path("theme").asText("");
+        if (!theme.isEmpty()) {
+            String tcss = "pre-assets/md/css/md-code-" + theme + ".css";
+            if (new File(presetDir, "md/css/md-code-" + theme + ".css").isFile()) {
+                sb.append(depTag(tcss, depth, true));
+            }
+        }
         if (webGlobalCss) sb.append("  <link rel=\"stylesheet\" href=\"").append(depthPrefix(depth)).append("assets/css/web_global.css\">\n");
         return sb.toString();
     }
 
-    private String buildScripts(JsonNode root, int depth, boolean hasPageJs, boolean themeActive) {
+    private String buildScripts(JsonNode root, int depth, boolean hasPageJs, boolean themeActive,
+                                boolean indexPage, String name) {
         StringBuilder sb = new StringBuilder();
         if (webGlobalJs) sb.append("  <script src=\"").append(depthPrefix(depth)).append("assets/js/web_global.js\"></script>\n");
         JsonNode deps = root.path("deps");
@@ -572,12 +593,17 @@ public class SiteBuilder {
                 errors.add("md-js 条目形态不合法: " + s);
             }
         }
-        if (hasPageJs) sb.append("  <script src=\"page-name.js\"></script>\n");
+        if (hasPageJs) {
+            String src = indexPage ? depthPrefix(depth) + "assets/index/index.js" : name + ".js";
+            sb.append("  <script src=\"").append(src).append("\"></script>\n");
+        }
         return sb.toString();
     }
 
-    private String pageCssTag(boolean hasPageCss) {
-        return hasPageCss ? "  <link rel=\"stylesheet\" href=\"page-name.css\">\n" : "";
+    private String pageCssTag(boolean hasPageCss, boolean indexPage, String name, int depth) {
+        if (!hasPageCss) return "";
+        String href = indexPage ? depthPrefix(depth) + "assets/index/index.css" : name + ".css";
+        return "  <link rel=\"stylesheet\" href=\"" + href + "\">\n";
     }
 
     private String depTag(String s, int depth, boolean cssPass) {

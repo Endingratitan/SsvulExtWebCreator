@@ -554,10 +554,11 @@ public class MarkdownRenderer {
         return !(prevB && nextB);
     }
 
-    /** 闭 $：仅要求前邻紧邻非空白非 $（后邻随意，行尾亦可） */
+    /** 闭 $：仅要求前邻紧邻非空白非 $（后邻随意，行尾亦可）；跳过被 \ 转义的 $ */
     private static int mathClose(String s, int open) {
         for (int j = open + 2; j < s.length(); j++) {
             if (s.charAt(j) != '$') continue;
+            if (j > 0 && s.charAt(j - 1) == '\\') continue;   // \$ 是转义，不是闭定界符
             char p = s.charAt(j - 1);
             if (!isWS(p) && p != '$') return j;
         }

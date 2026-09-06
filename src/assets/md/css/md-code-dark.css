@@ -1,5 +1,9 @@
-/* 深色主题变量覆盖（作者经 deps 引入；[data-theme=dark] 时生效） */
+/* 深色主题（[data-theme="dark"]）：页面级深色样式 + 代码调色板覆盖。
+   由 theme 键自动引入（也可经 deps 手动引入）。 */
 [data-theme="dark"] {
+  color-scheme: dark;
+  background: #0d1117;
+
   --md-code-bg: #282c34;  --md-code-fg: #abb2bf;
   --md-code-kw: #c678dd;  --md-code-str: #98c379;  --md-code-num: #d19a66;
   --md-code-com: #5c6370; --md-code-fn: #61afef;   --md-code-fndef: #61afef;
@@ -11,3 +15,12 @@
   --md-code-meta: #61afef; --md-code-op: #abb2bf;  --md-code-punct: #abb2bf;
   --md-code-tpl: #e5c07b; --md-code-regex: #98c379;
 }
+[data-theme="dark"] body { background: #0d1117; color: #c9d1d9; }
+[data-theme="dark"] .md-body a { color: #58a6ff; }
+[data-theme="dark"] .md-body h1, [data-theme="dark"] .md-body h2 { border-bottom-color: #30363d; }
+[data-theme="dark"] .md-body blockquote { color: #8b949e; border-left-color: #30363d; }
+[data-theme="dark"] .md-body hr { border-top-color: #30363d; }
+[data-theme="dark"] .md-kbd { color: #c9d1d9; background: #161b22; border-color: #30363d; }
+[data-theme="dark"] .md-table th, [data-theme="dark"] .md-table td { border-color: #30363d; }
+[data-theme="dark"] .md-table th { background: #161b22; }
+[data-theme="dark"] .md-body .md-code-inline { background: rgba(110,118,129,.4); }

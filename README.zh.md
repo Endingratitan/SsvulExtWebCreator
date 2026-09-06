@@ -48,7 +48,7 @@ div下可有JS、CSS文件与template.html模板，不能有图片、json等数�
 div用于创建具体的模块及行为，如导航栏
 最后将由[Integra](./src/main/java/io/github/endingratitan/Integra)完成页面组装；sets/divs 未命中的类型会回落查找 src/assets/divs/（官方预设组件）
 ##### 额外文件（三态互斥，同一 div 只能有一种）
-- 无标记：被引用时 div 内的 JS/CSS 合并为 page-name.js / page-name.css，放在页面目录下
+- 无标记：被引用时 div 内的 JS/CSS 合并为 `<name>.js` / `<name>.css`（name 为页面名），放在 `pages/<structures...>/<name>/` 下与页面 html 同级；INDEX 页特例放在 `assets/index/` 下（index.js / index.css）
 - `.global` 文件（无内容）：div 的 JS/CSS 输出为 assets/js|css/<type>.js|css 独立全局文件，页面用 deps 的 `global:<type>` 显式引用
 - `.adds` 文件（无内容，不需要再加 .global）：div 的 JS/CSS 拼入 assets/js/web_global.js 与 assets/css/web_global.css，此两文件被所有 html 自动引用
 - `template.html`（可选）：页面组装模板，占位符 {{key}}（←params）、{{content}}（←markdown/raw）、{{children}}（←嵌套子 div）；未声明占位符报错；没有模板时使用默认包裹层（id/class/attrs/data-*）
