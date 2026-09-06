@@ -147,3 +147,10 @@ output/pages
 ### 示例项目
 `example-sets/` 是最小示例站点（含 div 三态、theme、md 数学/高亮、bucket、站内互链、raw 文件夹）：
 将其内容复制为 `sets/` 后运行程序，即可在 output/ 得到完整站点。
+
+### 许可证
+本项目以 **MPL-2.0** 发布（全文见 `LICENSE`，归属与贡献者清单见 `NOTICE`）。
+使用与再分发要求：
+- 必须保留各源文件头部的版权与项目来源声明，以及根目录的 `LICENSE` 与 `NOTICE`
+- 对 MPL 覆盖文件的修改，须同样以 MPL-2.0 分发（文件级 copyleft）；工具生成的站点产物不受此约束，但站点内随附的预设内容（如 BASE 模板头部）需保留其来源声明
+- `src/assets/lib/` 下的第三方 vendor（hljs BSD-3、katex MIT/OFL）保持各自原许可

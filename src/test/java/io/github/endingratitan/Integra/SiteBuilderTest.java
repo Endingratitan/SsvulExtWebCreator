@@ -1,3 +1,11 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ * 项目来源: https://github.com/Endingratitan/SsvulExtWebCreator
+ * Copyright (c) 2026 Endingratitan
+ */
 package io.github.endingratitan.Integra;
 
 import org.junit.jupiter.api.Test;
@@ -89,6 +97,17 @@ public class SiteBuilderTest {
         RuntimeException e = assertThrows(RuntimeException.class, () ->
                 SiteBuilder.build(sets, out, new File("src/assets")));
         assertTrue(e.getMessage().contains("缺少必填键 cname"));
+    }
+
+    @Test
+    void missingConfigFileReportsOnce() throws Exception {
+        File sets = tmp.resolve("sets").toFile();
+        File out = tmp.resolve("output").toFile();
+        sets.mkdirs();
+        RuntimeException e = assertThrows(RuntimeException.class, () ->
+                SiteBuilder.build(sets, out, new File("src/assets")));
+        assertTrue(e.getMessage().contains("缺少 sets/Environment.config"), e.getMessage());
+        assertFalse(e.getMessage().contains("缺少必填键 cname"), e.getMessage());   // 同一根因不重复报
     }
 
     @Test

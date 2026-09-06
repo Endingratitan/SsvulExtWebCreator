@@ -1,0 +1,13 @@
+SsvulExtWebCreator
+项目来源: https://github.com/Endingratitan/SsvulExtWebCreator
+
+版权与归属声明
+- Copyright (c) 2026 Endingratitan（作者与版权持有人）
+- 贡献者（按加入时间排序）：
+  - Endingratitan
+  （新增贡献者请在此追加）
+
+再分发要求（MPL-2.0 §3.4 + 本项目声明）
+- 必须保留本 NOTICE、根目录 LICENSE（MPL-2.0 全文）以及各源文件头部的版权与项目来源声明
+- 对 MPL 覆盖文件的修改，须同样以 MPL-2.0 分发（文件级 copyleft）
+- 第三方 vendor（src/assets/lib/ 下的 hljs、katex 等）保持各自原许可，见其随附 LICENSE 文件

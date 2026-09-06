@@ -1,3 +1,4 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0：再分发须保留本声明与 LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
 /* md 数学预设：直接用 katex.render 渲染 .md-math / .md-math-block 锚点（不依赖 auto-render）。
    依赖：deps 引入 lib/katex/katex.min.css 与 katex.min.js（先于本文件执行）。
    脚本位于 body 末尾、DOM 已就绪，立即执行。 */

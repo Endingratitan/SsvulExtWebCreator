@@ -1,0 +1,21 @@
+name: Output to Branch
+on:
+   #push:
+   # branches:
+   #    - main
+  workflow_dispatch:
+
+
+jobs:
+  build-and-output:
+    name: Build and Output
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pre-do
+        env:
+
+  output-added-in-branch:
+    name: Branch adds Output
+    needs: build-and-output
+
+

@@ -1,26 +1,28 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0：再分发须保留本声明与 LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
 /* 深色主题（[data-theme="dark"]）：页面级深色样式 + 代码调色板覆盖。
-   由 theme 键自动引入（也可经 deps 手动引入）。 */
+   由 theme 键自动引入（也可经 deps 手动引入）。配色由视觉模型设计。 */
 [data-theme="dark"] {
   color-scheme: dark;
-  background: #0d1117;
+  background: #1b1f2a;
 
-  --md-code-bg: #282c34;  --md-code-fg: #abb2bf;
-  --md-code-kw: #c678dd;  --md-code-str: #98c379;  --md-code-num: #d19a66;
-  --md-code-com: #5c6370; --md-code-fn: #61afef;   --md-code-fndef: #61afef;
-  --md-code-cls: #e5c07b; --md-code-type: #e5c07b; --md-code-enum: #e5c07b;
-  --md-code-iface: #56b6c2; --md-code-builtin: #56b6c2; --md-code-const: #d19a66;
-  --md-code-var: #e06c75; --md-code-field: #e06c75; --md-code-fieldstatic: #e06c75;
-  --md-code-local: #e06c75; --md-code-param: #e06c75; --md-code-attr: #d19a66;
-  --md-code-prop: #d19a66; --md-code-tag: #e06c75;  --md-code-sel: #e06c75;
-  --md-code-meta: #61afef; --md-code-op: #abb2bf;  --md-code-punct: #abb2bf;
-  --md-code-tpl: #e5c07b; --md-code-regex: #98c379;
+  --md-code-bg: #1b1f2a;  --md-code-fg: #e6e9ee;
+  --md-code-kw: #b388ff;  --md-code-str: #61e08e;  --md-code-num: #ffcf5c;
+  --md-code-com: #7b8290; --md-code-fn: #5db0f5;   --md-code-fndef: #46d0bd;
+  --md-code-cls: #f0ca56; --md-code-type: #64c7ef; --md-code-enum: #c792ea;
+  --md-code-iface: #2fe0a8; --md-code-builtin: #ff6e9c; --md-code-const: #ff8a65;
+  --md-code-var: #9db8d9; --md-code-field: #ff9e64; --md-code-fieldstatic: #e39d3f;
+  --md-code-local: #a0c98a; --md-code-param: #c8a2ff; --md-code-attr: #ff7a9c;
+  --md-code-prop: #ff79c6; --md-code-tag: #ff5c7a;  --md-code-sel: #7be0c5;
+  --md-code-meta: #9a9bff; --md-code-op: #ffd28f;  --md-code-punct: #9aa4b2;
+  --md-code-tpl: #ff8ac2; --md-code-regex: #ff7b72;
 }
-[data-theme="dark"] body { background: #0d1117; color: #c9d1d9; }
-[data-theme="dark"] .md-body a { color: #58a6ff; }
-[data-theme="dark"] .md-body h1, [data-theme="dark"] .md-body h2 { border-bottom-color: #30363d; }
-[data-theme="dark"] .md-body blockquote { color: #8b949e; border-left-color: #30363d; }
-[data-theme="dark"] .md-body hr { border-top-color: #30363d; }
-[data-theme="dark"] .md-kbd { color: #c9d1d9; background: #161b22; border-color: #30363d; }
-[data-theme="dark"] .md-table th, [data-theme="dark"] .md-table td { border-color: #30363d; }
-[data-theme="dark"] .md-table th { background: #161b22; }
-[data-theme="dark"] .md-body .md-code-inline { background: rgba(110,118,129,.4); }
+[data-theme="dark"] body { background: #1b1f2a; color: #e6e9ee; }
+[data-theme="dark"] .md-body a { color: #7ab8ff; }
+[data-theme="dark"] .md-body h1, [data-theme="dark"] .md-body h2 { border-bottom-color: #3a4258; }
+[data-theme="dark"] .md-body h2 { color: #f2f5fa; }
+[data-theme="dark"] .md-body blockquote { color: #c9d2de; border-left-color: #5a6b8c; }
+[data-theme="dark"] .md-body hr { border-top-color: #333d57; }
+[data-theme="dark"] .md-kbd { color: #e6e9ee; background: #282f3f; border-color: #454e69; }
+[data-theme="dark"] .md-table th, [data-theme="dark"] .md-table td { border-color: #3a4258; }
+[data-theme="dark"] .md-table th { background: #262d3d; }
+[data-theme="dark"] .md-body .md-code-inline { background: #282f3f; }

@@ -1,3 +1,11 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ * 项目来源: https://github.com/Endingratitan/SsvulExtWebCreator
+ * Copyright (c) 2026 Endingratitan
+ */
 package io.github.endingratitan.Integra;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -96,9 +104,14 @@ public class SiteBuilder {
 
     // ==================== 环境 ====================
 
+    private boolean envLoaded;
+
     private void loadEnv() {
         File f = new File(setsDir, "Environment.config");
-        if (!f.isFile()) { errors.add("缺少 sets/Environment.config（cname 为必填项）"); return; }
+        if (!f.isFile()) {
+            errors.add("缺少 sets/Environment.config（cname 为必填项）；首次使用可将 example-sets/ 的内容复制为 sets/ 快速开始");
+            return;
+        }
         AssetsConfigReader acr = new AssetsConfigReader(f);
         acr.Read();
         env = acr.getConfig();
@@ -106,6 +119,7 @@ public class SiteBuilder {
         categories = "1".equals(lastOf("categories"));
         readmeOn = "1".equals(lastOf("readme"));
         localFavicon = "1".equals(lastOf("local-favicon"));
+        envLoaded = true;
     }
 
     private String lastOf(String key) {
@@ -115,6 +129,7 @@ public class SiteBuilder {
 
     /** cname 为唯一必填键；值为 0 时不创建 CNAME 文件（视为端口部署） */
     private void queueCname() {
+        if (!envLoaded) return;   // 配置文件缺失时 loadEnv 已报错，避免重复
         String cname = lastOf("cname");
         if (cname.isEmpty()) {
             errors.add("Environment.config 缺少必填键 cname（填 0 表示不创建 CNAME 文件）");

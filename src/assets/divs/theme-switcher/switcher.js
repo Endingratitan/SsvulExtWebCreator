@@ -1,3 +1,4 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0：再分发须保留本声明与 LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
 /* theme-switcher 预设组件：按钮经 SsvulTheme.set 切换主题并持久化到 localStorage。
    params：themes="light,dark"（逗号分隔，缺省 light,dark）；labels="亮,暗"（可选，缺省用主题名）。
    依赖：页面开启 theme 键（自动引用 md-theme.js），或 md-js 手动引入 md/js/md-theme.js。 */
