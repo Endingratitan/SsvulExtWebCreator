@@ -3,10 +3,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  *
- * 项目来源: https://github.com/Endingratitan/SsvulExtWebCreator
+ * Project: https://github.com/Endingratitan/SsvulExtWebCreator
  * Copyright (c) 2026 Endingratitan
  */
-package io.github.endingratitan.JSMinifier;
+package io.github.endingratitan.WebMinify.js;
 
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;

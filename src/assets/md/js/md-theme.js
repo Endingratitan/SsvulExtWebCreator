@@ -1,4 +1,4 @@
-/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0：再分发须保留本声明与 LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
 /* SsvulExtWebCreator 主题管理预设：localStorage 持久化 + data-theme 切换 + themechange 事件 +
    访客调色板（ssvul-palette：CSS 变量覆盖表，优先于主题 css 文件）+ palettechange 事件。
    契约见 README「接口契约」。 */

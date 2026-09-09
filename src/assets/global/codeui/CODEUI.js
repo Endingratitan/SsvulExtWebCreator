@@ -1,4 +1,4 @@
-/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0：再分发须保留本声明与 LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
 /* CODEUI.js 官方模板：复制到 sets/global/codeui/CODEUI.js 后按需修改（存在即注入，仅注入有代码块的页面，
    并在引擎资源与 md-copy.js 之后执行）。
    可用契约：

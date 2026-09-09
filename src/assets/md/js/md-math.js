@@ -1,4 +1,4 @@
-/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0：再分发须保留本声明与 LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
 /* md 数学预设：直接用 katex.render 渲染 .md-math / .md-math-block 锚点（不依赖 auto-render）。
    支持 $…$ / $$…$$ 与 LaTeX 原生 \(…\) / \[…\]（非默认定界符经 data-delim 标注）。
    依赖：deps 引入 lib/katex/katex.min.css 与 katex.min.js（先于本文件执行）。

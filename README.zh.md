@@ -7,6 +7,13 @@
 - md格式转html，并个性化可配置文件
 - 其他
 
+## 使用
+
+- 构建：`java -jar ssvul-<版本>.jar build`（默认读取 sets/，输出 output/；或 `-b`）
+- 初始化站点：`java -jar ssvul-<版本>.jar init [dir]`（默认生成 site/ 骨架，含正确 .gitignore）
+- 子命令：`build|-b`（构建）、`init|-i`（骨架）、`preview|-p`（本地预览，v3 后续提供）、`version|-v`（版本）
+- 开发运行：`.\gradlew run`（Gradle；版本号注入由 gradle 构建完成）
+
 ## 方案
 ### output 目录
 output目录是产生的结果，内容为完整的0构建依赖网页项目文件

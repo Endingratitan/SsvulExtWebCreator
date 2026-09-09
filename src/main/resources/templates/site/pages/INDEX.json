@@ -1,0 +1,9 @@
+{
+  "name": "INDEX",
+  "title": "My Site",
+  "page": {
+    "div-1": { "type": "navbar", "params": { "brand": "My Site" } },
+    "div-2": { "type": "card", "params": { "title": "Hello" },
+      "markdown": "# Hello\n\n由 SsvulExtWebCreator {{VERSION}} 生成的站点骨架。" }
+  }
+}

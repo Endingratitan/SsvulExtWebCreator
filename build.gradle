@@ -4,10 +4,25 @@ plugins {
 }
 
 group = 'io.github.endingratitan.SsvulExtWebCreator'
-version = '1.0-SNAPSHOT'
+version = '0.3.0'
 
 application {
     mainClass = 'io.github.endingratitan.SsvulExtWebCreator.Main'
+}
+
+// 构建版本注入 ssvul-version.txt（version 子命令读取；jar/action/tag 三处同版本）
+processResources {
+    doLast {
+        def vf = new File(destinationDirectory.get().asFile, 'ssvul-version.txt')
+        vf.text = version
+    }
+}
+
+// fat-jar（零第三方插件）：依赖解包进 jar，resources 自动携带（init 模板）
+jar {
+    manifest { attributes 'Main-Class': 'io.github.endingratitan.SsvulExtWebCreator.Main' }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
 }
 
 repositories {

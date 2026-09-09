@@ -1,4 +1,4 @@
-/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0：再分发须保留本声明与 LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
 /* md 复制按钮预设（copy-btn item 的行为实现）：clipboard API + execCommand 回退（file:// 等非安全上下文），
    成功改文案 2 秒恢复，并派发 ssvulcopy 事件（detail: {ok, lang}）。
    依赖：构建期生成的 .md-code-copy 按钮（code-ui.items 含 copy-btn）；脚本位于 body 末尾、DOM 已就绪。 */

@@ -1,4 +1,4 @@
-/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0：再分发须保留本声明与 LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
 /* md 高亮预设：客户端 hljs 上色 + token-map 映射 canonical 类（tk-*）。
    依赖：deps 引入 lib/hljs/hljs.min.js（先于本文件执行）；
    自定义语言注册脚本请排在 md-js 本文件之前；token 扩展见 token-map.js。
