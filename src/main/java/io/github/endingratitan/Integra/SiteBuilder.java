@@ -8,8 +8,13 @@
  */
 package io.github.endingratitan.Integra;
 
+import io.github.endingratitan.WebMinify.css.CssDeduper;
+import io.github.endingratitan.WebMinify.css.CssMinifier;
+import io.github.endingratitan.WebMinify.js.JsDeduper;
+import io.github.endingratitan.WebMinify.js.JsDeclScan;
 import io.github.endingratitan.WebMinify.js.JsMinifier;
 import io.github.endingratitan.WebMinify.js.JsMinifierRegistry;
+import io.github.endingratitan.WebMinify.js.Lex;
 
 import java.io.File;
 import java.io.IOException;
@@ -59,14 +64,20 @@ public class SiteBuilder {
     final Map<String, File> codeuiFiles = new LinkedHashMap<>();  // sets/global/codeui 的站点级文件
     boolean codeuiCssExists, codeuiJsExists;                   // CODEUI.css/js 存在性（注入门控之一）
     boolean hasCode, copyJsNeeded, injectCodeuiCss, injectCodeuiJs;   // 每页：hasCode 门控 + 注入标记
-    boolean minifyOn = true;                                       // minify=0 可关（默认开，站点级）
-    String minifierName = "simple";                                // minifier 键（v3 预留 closure）
+    final Set<String> pageGlobalRefs = new LinkedHashSet<>();        // 每页 global: 引用（父子双引用警告）
+    final List<Map<String, String>> pageIndex = new ArrayList<>();  // 页面索引（search/shower 数据源）：link/title/date/excerpt/text/tags
+    boolean searchNeeded;                                           // 任页用到 search div → 输出 search-index.json
+    final Map<String, Boolean> showerDirs = new LinkedHashMap<>();  // shower shared:true 声明的 dir 集合（按目录分片发射共享索引）
+    boolean themePickerNeeded;                                        // 页含 palette-picker → 链接全部内置主题 css
+    int currentPageDepth;                                           // 当前页深度（data-depth 属性注入）
+    int minifyLevel = 2;                                       // -1 去重+注释保留 | 0 全关 | 1 去重不压缩 | 2 全开（默认）
+    String minifierName = "simple";                            // minifier 键（v3 预留 closure）
 
     SiteScan scan;   // divOf 供页面组装使用
 
     static class Queued {
         final File target;
-        final String content;
+        String content;               // 回填占位符会改写
         final int depth;
         final File source;      // binary 用
         final boolean binary;
@@ -98,13 +109,103 @@ public class SiteBuilder {
         scan.scanFavicon();
         scan.scanOuter();
         scan.scanGlobal();
-        pagesBuilder.buildGlobals();
+        scan.collectPageIndex();   // 预收集页面元数据（search/shower 数据源；渲染前可用）
+        // 重排 B：先渲染页面（divOf 惰性解析继承链），后生成全局聚合，再回填占位符
         for (SiteScan.Page p : pages) {
             if (p.bareMd) pagesBuilder.buildBareMd(p); else pagesBuilder.buildJsonPage(p);
         }
+        pagesBuilder.buildGlobals();
+        pagesBuilder.emitSearchIndex();
+        pagesBuilder.emitShowerIndexes();
+        backfillGlobals();
         for (String w : warnings) IO.println("[构建警告] " + w);
         if (!errors.isEmpty()) throw new RuntimeException(joinErrors());
         writer.writeAll();
+    }
+
+    /** 回填 web_global 占位符（页面组装时无法预知全局聚合是否产出） */
+    private void backfillGlobals() {
+        for (Queued q : queue) {
+            if (q.content == null) continue;
+            q.content = replacePh(q.content, "{{WEBGLOBAL_JS:",
+                    webGlobalJs ? "  <script src=\"@P@assets/js/web_global" + jsSuffix() + "\"></script>\n" : "");
+            q.content = replacePh(q.content, "{{WEBGLOBAL_CSS:",
+                    webGlobalCss ? "  <link rel=\"stylesheet\" href=\"@P@assets/css/web_global.css\">\n" : "");
+        }
+    }
+
+    private static String replacePh(String c, String mark, String tag) {
+        String out = c;
+        int idx;
+        while ((idx = out.indexOf(mark)) >= 0) {
+            int close = out.indexOf("}}", idx + mark.length());
+            if (close < 0) break;
+            int depth = Integer.parseInt(out.substring(idx + mark.length(), close));
+            out = out.substring(0, idx) + tag.replace("@P@", depthPrefix(depth)) + out.substring(close + 2);
+        }
+        return out;
+    }
+
+    // ==================== 聚合助手（origin 去重 + A 层 + 项级去重 + runtime） ====================
+
+    boolean dedupOn() { return minifyLevel != 0; }
+    boolean compressOn() { return minifyLevel == 2; }
+    boolean keepDedupComments() { return minifyLevel == -1; }
+
+    /** 聚合 div js（链文件根→叶；origin 保证共享祖先只出一份；A 层冲突扫描；项级去重；runtime 尾接） */
+    String aggregateDivJs(List<SiteScan.DivInfo> divs) {
+        List<File> files = new ArrayList<>();
+        Set<String> origins = new HashSet<>();
+        for (SiteScan.DivInfo d : divs)
+            for (File f : d.js)
+                if (origins.add(f.getPath())) files.add(f);
+        List<File> uniq = new ArrayList<>();
+        Set<String> sigs = new HashSet<>();
+        for (File f : files) {
+            String content = readFile(f);
+            if (sigs.add(JsDeduper.signatureOf(content))) uniq.add(f);   // 文件级内容去重
+        }
+        if (dedupOn()) {
+            Map<String, String> decl = new LinkedHashMap<>();
+            for (File f : uniq) {
+                for (String name : JsDeclScan.topLevelBlockScoped(readFile(f))) {
+                    String prev = decl.put(name, f.getName());
+                    if (prev != null && !prev.equals(f.getName()))
+                        errors.add("js 顶层 let/const/class 重名（串联后 SyntaxError）: " + name + "（" + prev + " 与 " + f.getName() + "）");
+                }
+            }
+        }
+        StringBuilder concat = new StringBuilder();
+        for (File f : uniq) concat.append(readFile(f)).append('\n');
+        String js = concat.toString();
+        if (dedupOn()) {
+            JsDeduper.Result r = JsDeduper.dedupItems(js, keepDedupComments());
+            js = r.code();
+            for (String note : r.notes()) warn(note);
+        }
+        // runtime 前置（div js 顶层即调 SsvulDiv.register，运行时必须先定义）；仅当聚合内容使用 SsvulDiv
+        if (js.contains("SsvulDiv")) {
+            String runtime = readPreset("runtime/ssvul-div.js");
+            refPreset("runtime/ssvul-div.js");
+            js = runtime + js;
+        }
+        if (compressOn()) js = minifyJs(js);
+        return js;
+    }
+
+    /** 聚合 div css（origin 去重 + 同选择器去重 + 压缩） */
+    String aggregateDivCss(List<SiteScan.DivInfo> divs) {
+        List<File> files = new ArrayList<>();
+        Set<String> origins = new HashSet<>();
+        for (SiteScan.DivInfo d : divs)
+            for (File f : d.css)
+                if (origins.add(f.getPath())) files.add(f);
+        StringBuilder concat = new StringBuilder();
+        for (File f : files) concat.append(readFile(f)).append('\n');
+        String css = concat.toString();
+        if (dedupOn()) css = CssDeduper.dedup(css, keepDedupComments());
+        if (compressOn()) css = CssMinifier.minify(css);
+        return css;
     }
 
     // ==================== 环境 ====================
@@ -124,7 +225,16 @@ public class SiteBuilder {
         localFavicon = "1".equals(lastOf("local-favicon"));
         offline = "1".equals(lastOf("offline"));
         String mv = lastOf("minify");
-        minifyOn = mv.isEmpty() || "1".equals(mv);           // 默认开
+        minifyLevel = switch (mv) {
+            case "", "2" -> 2;                 // 默认全开
+            case "-1" -> -1;
+            case "0" -> 0;
+            case "1" -> 1;
+            default -> {
+                errors.add("minify 值须为 -1/0/1/2: " + mv);
+                yield 2;
+            }
+        };
         String mn = lastOf("minifier");
         minifierName = mn.isEmpty() ? "simple" : mn;
         envLoaded = true;
@@ -273,8 +383,8 @@ public class SiteBuilder {
     /** 构建警告（控制台输出，不阻断） */
     void warn(String msg) { warnings.add(msg); }
 
-    /** 生成物 js 后缀：minify=1 → .min.js；0 → .js（字节兼容） */
-    String jsSuffix() { return minifyOn ? ".min.js" : ".js"; }
+    /** 生成物 js 后缀：去重/压缩档（≥1）→ .min.js；0/-1 → .js */
+    String jsSuffix() { return minifyLevel >= 1 ? ".min.js" : ".js"; }
 
     /** 经注册表压缩（Closure 预留缝）；降级说明并入构建警告；异常兜底原文 */
     String minifyJs(String js) {
@@ -282,6 +392,63 @@ public class SiteBuilder {
         JsMinifier.Result r = m.minify(js);
         for (String note : r.notes()) warn(note);
         return r.code();
+    }
+
+    // ==================== .contract 契约检查（词法可判定才警，漏报用通用警告覆盖） ====================
+
+    private final Set<String> contractChecked = new HashSet<>();
+
+    void checkContract(SiteScan.DivInfo effective) {
+        if (effective == null || effective.requiredHooks.isEmpty()) return;
+        if (!contractChecked.add(effective.type)) return;
+        SiteScan.DivInfo raw = divs.get(effective.type);
+        if (raw == null || raw.js.isEmpty()) return;
+        StringBuilder own = new StringBuilder();
+        for (File f : raw.js) own.append(readFile(f)).append('\n');
+        List<Lex.Tok> toks = Lex.tokens(own.toString());
+        boolean anyRegister = false;
+        for (int k = 0; k < toks.size(); k++) {
+            Lex.Tok t = toks.get(k);
+            if (t.type() == Lex.IDENT && t.text().equals("register")) anyRegister = true;
+            if (t.type() != Lex.IDENT || !t.text().equals("register")) continue;
+            int p = k + 1;
+            while (p < toks.size() && (toks.get(p).type() == Lex.NL || toks.get(p).type() == Lex.COMMENT)) p++;
+            if (p >= toks.size() || toks.get(p).type() != Lex.PUNCT || !toks.get(p).text().equals("(")) continue;
+            int q = p + 1;
+            while (q < toks.size() && (toks.get(q).type() == Lex.NL || toks.get(q).type() == Lex.COMMENT)) q++;
+            if (q >= toks.size() || toks.get(q).type() != Lex.STRING) continue;
+            String name = toks.get(q).text();
+            name = name.length() >= 2 ? name.substring(1, name.length() - 1) : name;
+            if (!effective.chainTypes.contains(name)) continue;   // 家族注册名（基类名）也在链上
+            int r = q + 1;
+            while (r < toks.size() && (toks.get(r).type() == Lex.NL || toks.get(r).type() == Lex.COMMENT
+                    || (toks.get(r).type() == Lex.PUNCT && toks.get(r).text().equals(",")))) r++;
+            if (r >= toks.size() || toks.get(r).type() != Lex.PUNCT || !toks.get(r).text().equals("{")) break;
+            int depth = 0;
+            Map<String, Boolean> keys = new LinkedHashMap<>();
+            for (int m = r; m < toks.size(); m++) {
+                Lex.Tok u = toks.get(m);
+                if (u.type() == Lex.PUNCT) {
+                    if (u.text().equals("{")) depth++;
+                    else if (u.text().equals("}") && --depth == 0) break;
+                    continue;
+                }
+                if (u.type() == Lex.IDENT && m + 1 < toks.size()
+                        && toks.get(m + 1).type() == Lex.PUNCT && toks.get(m + 1).text().equals(":")) {
+                    boolean nulled = m + 2 < toks.size() && toks.get(m + 2).type() == Lex.KEYWORD
+                            && toks.get(m + 2).text().equals("null");
+                    keys.put(u.text(), nulled);
+                }
+            }
+            for (String h : effective.requiredHooks) {
+                Boolean nulled = keys.get(h);
+                if (nulled == null) warn("div " + effective.type + " 缺 required 钩子 " + h + "（父产物可能丢失）");
+                else if (nulled) warn("div " + effective.type + " required 钩子 " + h + " 被置 null");
+            }
+            return;
+        }
+        if (anyRegister) warn("div " + effective.type + " 契约无法静态核验（动态注册），请自查 required 钩子: " + effective.requiredHooks);
+        else warn("div " + effective.type + " 声明了 required 钩子但 js 无 register 调用: " + effective.requiredHooks);
     }
 
     String joinErrors() {

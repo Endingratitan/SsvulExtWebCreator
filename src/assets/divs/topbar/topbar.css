@@ -1,0 +1,7 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+/* topbar：外层包裹类 .ssvul-topbar 定位 sticky（内层 .ssvul-bar 由基类模板渲染）。 */
+.ssvul-topbar .ssvul-bar { position: sticky; top: 0; z-index: 10;
+  background: var(--topbar-bg, rgba(255,255,255,.92)); backdrop-filter: blur(6px); }
+.ssvul-topbar .ssvul-bar.bar-scrolled { box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+[data-theme="dark"] .ssvul-topbar { --topbar-bg: rgba(27,31,42,.92); }
+[data-theme="green"] .ssvul-topbar { --topbar-bg: rgba(12,18,12,.92); }

@@ -1,0 +1,27 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+/* 护眼纸色主题（[data-theme="sepia"]）：暖纸底 + 墨棕文字 + 柔和代码调色板。由 theme 键自动引入。 */
+[data-theme="sepia"] {
+  color-scheme: light;
+  background: #f6f0e2;
+  --md-code-bg: #fbf6e8;  --md-code-fg: #4a4035;
+  --md-code-kw: #8a5a00;  --md-code-str: #4a7d2e;  --md-code-num: #b06000;
+  --md-code-com: #968a76; --md-code-fn: #3f6fb5;   --md-code-fndef: #2f7d86;
+  --md-code-cls: #a07000; --md-code-type: #3f5f9e; --md-code-enum: #7d4da8;
+  --md-code-iface: #2f7d5a; --md-code-builtin: #a03a55; --md-code-const: #8a3050;
+  --md-code-var: #55504a; --md-code-field: #8a5a2a; --md-code-fieldstatic: #6e5a20;
+  --md-code-local: #55603e; --md-code-param: #5f4a8a; --md-code-attr: #a04510;
+  --md-code-prop: #a0357a; --md-code-tag: #b03030;  --md-code-sel: #2f7d70;
+  --md-code-meta: #6e55b0; --md-code-op: #6e5f8a;  --md-code-punct: #5f5a52;
+  --md-code-tpl: #4f5fae; --md-code-regex: #a83050;
+  --codeui-radius: 10px;
+}
+[data-theme="sepia"] body { background: #f6f0e2; color: #4a4035; }
+[data-theme="sepia"] .md-body h1, [data-theme="sepia"] .md-body h2 { color: #3d3529; }
+[data-theme="sepia"] .md-body a { color: #8a5a00; }
+[data-theme="sepia"] .md-body h1, [data-theme="sepia"] .md-body h2 { border-bottom-color: #d8cba8; }
+[data-theme="sepia"] .md-body blockquote { color: #6e6350; border-left-color: #b8a888; background: #f1e8d2; }
+[data-theme="sepia"] .md-table th, [data-theme="sepia"] .md-table td { border-color: #d8cba8; }
+[data-theme="sepia"] .md-table th { background: #efe5cd; }
+[data-theme="sepia"] .md-body .md-code-inline { background: #efe5cd; }
+[data-theme="sepia"] .md-code-block { border-color: #d8cba8; }
+[data-theme="sepia"] .md-code-copy { border-color: #c8b890; background: rgba(255,255,255,.7); color: #4a4035; }

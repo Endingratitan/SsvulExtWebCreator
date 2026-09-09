@@ -1,0 +1,8 @@
+<!-- SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan -->
+<!-- bar 家族基类模板：brand 品牌 + 汉堡菜单 + {{content}} 链接区。
+     契约：params.brand（可选）；js 以 SsvulDiv.register('bar', …) 覆写（家族注册名=基类名）。 -->
+<div class="ssvul-bar" data-bar>
+  <span class="bar-brand">{{brand}}</span>
+  <button type="button" class="bar-menu" aria-label="menu" aria-expanded="false">☰</button>
+  <div class="bar-links">{{content}}</div>
+</div>

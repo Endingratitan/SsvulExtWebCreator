@@ -53,13 +53,38 @@ bucket键的值将以数组存储，允许多次输入；其他键以最后一�
 | local-favicon | favicon目录是在项目中还是云端，0为项目，1为bucket，默认0         |
 | offline       | 离线模式：1=是（bucket 引用命中 outer/ 镜像时本地替换进 assets/outer/，未命中报错）；0=否（默认，输出线上 URL；outer 目录存在时对未命中的引用发警告） |
 | engine-words  | 词表扩展：`(语言,data/词表路径)` 可多条；为 simple 引擎追加关键字（行格式 `词` 或 `词:tokenid`，tokenid 见 token-map.js 的 tk 集合，缺省 kw）        |
-| minify        | 输出 js 压缩：1=开（**默认**：生成物改 `.min.js` 后缀并压缩内容，官方预设 js 的输出副本同步压缩，均保留许可头）；0=关（原样 `.js`，字节兼容）           |
+| minify        | 优化档：**2=全开（默认**：去重+压缩）、1=去重不压缩、0=全关、-1=去重且被覆写代码以注释保留原位（调试对比）；档 ≥1 生成物用 `.min.js` 后缀        |
 | minifier      | 压缩引擎：simple（默认，自编稳定实现——局部名改写+注释/空白压缩，含 eval/解构等自动降级护栏）；v3 预留 closure（Google Closure Compiler）接入          |
 
 #### divs/
 divs里面可有子目录作为categories，所有子目录下再有单独的div类型目录；
 或者直接每个子目录作为div（categories=0）。  
 div下可有JS、CSS文件与template.html模板，不能有图片、json等数据文件，数据文件可从data/引入；图片必须从bucket导入。
+
+**div 继承（.extends）**：div 目录放 `.extends` 文件（首非空行 = 父类型名，sets 或预设均可）——
+- 模板：子有则覆盖父，无则继承最近祖先的；
+- js/css：沿链**串联**（根→叶：父在前子在后——CSS 级联"子覆盖父"、JS 子后执行可覆写）；
+- `.global`/`.adds` 标记：沿链**并集**；冲突时子可在 `.contract` 首非空行写 `override` 覆盖父标记（否则报错）；
+- 护栏：继承环/链长>8/父类型不存在 → 报错。
+- **JS 覆写消冗余**（构建期，词法判定）：同名**函数声明后到即胜**（父实现直接清除=覆写即替换）；`var x=…;` 紧邻恒等去重；顶层 `let/const/class` 跨文件重名 → 报错（串联后 SyntaxError）。
+- **钩子契约**：div js 建议"只注册不执行"——`window.SsvulDiv.register(name,{init:fn})`（同名合并覆写）、`SsvulDiv.super(name,'init')`（子调父）、`initAll` 统一执行；`.contract` 其余非空行 = required 钩子，子置 null/缺失 → 构建警告（动态注册则通用警告）。
+
+**内置 div（src/assets/divs，可 .extends 继承）**：
+| div | params | 说明 |
+|---|---|---|
+| bar / navbar / topbar | brand | 导航家族：基类 bar（汉堡响应式）← navbar ← topbar（sticky+滚动阴影）；家族注册名=bar |
+| search | placeholder、limit | 站内静态搜索（构建期生成 assets/data/search-index.json，路径按 div 的 data-depth 解析） |
+| shower | dir、pattern(*.md/*.json)、count、order(date/name/random)、seed、fields、manual、shared | 数据驱动列表：默认内联 data-json（零请求、file:// 可用）；`shared:true` 改按目录分片共享索引 `assets/data/shower/<dir>.json`（dir 空 → index.json；只发射声明的目录，同目录多 shower 共用一份字节，客户端过滤 pattern/order/count；fetch 依赖 http(s)）；window.SsvulShower 三钩子可覆写 |
+| breadcrumb | root-label、separator | 按 URL 路径生成面包屑（纯客户端） |
+| backtotop | threshold | 回到顶部按钮 |
+| pager | current、total、base | 分页导航 |
+| palette-picker | palettes、labels | 整页主题切换按钮组（SsvulTheme.set；选中态 .active + aria-pressed；clear=恢复页面初始主题；生成器自动全量链接 md-code-*.css） |
+| theme-switcher | themes、labels | 主题切换（持久化 ssvul-theme；选中态 .active + aria-pressed） |
+每个 div 的 params/钩子契约见其 template.html 头注释；div 根元素带 `data-depth` 属性供 js 计算相对路径。
+
+**内置主题**：`theme` 键自动引用 `md-code-<theme>.css`（存在即注入）：`dark`（深色）、`sepia`（护眼纸色）、`green`（终端绿）；自定义主题 = 在 src/assets/md/css/ 放同名 css 文件。
+
+> **div 编写完整指南**：[docs/UserWrite/div-guide.md](docs/UserWrite/div-guide.md)（模板占位符/params 双通道/只注册不执行/继承规则/.contract 格式/内置 div 清单/示例）。
 div用于创建具体的模块及行为，如导航栏
 最后将由[Integra](./src/main/java/io/github/endingratitan/Integra)完成页面组装；sets/divs 未命中的类型会回落查找 src/assets/divs/（官方预设组件）
 ##### 额外文件（三态互斥，同一 div 只能有一种）
@@ -93,6 +118,7 @@ output/pages
 其他目录结构自定，将会完整复制到output/assets/data下
 建议存储json、md、图片等；禁止js/css（生成时扫描报错）
 用于被其他引用（md 中经 @data/... 引用）
+生成器保留名：`shower/` 目录（shared shower 共享索引输出，sets/data 下占名报错）；`search-index.json` 同样由生成器输出，勿同名占位
 #### outer/
 作为bucket的本地复制，
 下面有若干以调用名命名的子目录（如 outer/bk/），其内容与对应云端结构一模一样
@@ -218,7 +244,7 @@ simple/strict 行为矩阵（⑥ 定稿；两模式支持面相同，仅容忍�
 
 | 契约 | 值 |
 |---|---|
-| localStorage 键 | `ssvul-theme`（主题名）、`ssvul-palette`（访客调色板：JSON 变量表如 `{"--md-code-kw":"#ff7b72"}`，优先于主题 css 文件） |
+| localStorage 键 | `ssvul-theme`（主题名）、`ssvul-palette`（访客调色板：JSON 变量表如 `{"--md-code-kw":"#ff7b72"}`，优先于主题 css 文件）、`ssvul-palette-ver`（v0.3.0 迁移标记：旧版 picker 遗留的调色板在首次升级时自动清除一次） |
 | 事件 | `themechange`(detail.theme)、`palettechange`(detail.palette)、`ssvulhighlight`(引擎上色完成)、`ssvulcopy`(detail.ok/lang) |
 | 全局对象 | `window.SsvulTheme { get, set, toggle, setPalette, clearPalette }`（md-theme.js 预设提供） |
 | CSS 变量 | `--md-code-*`（26 类 token 配色）+ `--codeui-*`（code-ui 半径等）；主题 css 文件与访客调色板都走这套变量 |

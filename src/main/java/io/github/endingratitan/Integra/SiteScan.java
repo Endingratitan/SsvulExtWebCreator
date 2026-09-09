@@ -21,9 +21,13 @@ class SiteScan {
         final String type;
         final File dir;
         boolean global, adds;
-        final List<File> js = new ArrayList<>();
+        final List<File> js = new ArrayList<>();      // 有效链（根→叶）：divOf 解析后含父的
         final List<File> css = new ArrayList<>();
         File template;
+        String extendsType;                            // .extends 父类型（本目录原始声明）
+        String contractMode = "extend";                // extend|override（.contract 首非空行）
+        List<String> requiredHooks = List.of();        // .contract required 钩子
+        List<String> chainTypes = List.of();           // 继承链类型名（根→叶；契约检查按家族注册名匹配）
         DivInfo(String type, File dir) { this.type = type; this.dir = dir; }
     }
 
@@ -63,18 +67,48 @@ class SiteScan {
         }
         if (sb.divs.containsKey(type)) { sb.errors.add("div 类型重复: " + type); return; }
         DivInfo info = new DivInfo(type, dir);
+        readDivFiles(info, dir, true);
+        if (info.global && info.adds) sb.errors.add("div " + type + " 不能同时有 .global 与 .adds");
+        sb.divs.put(type, info);
+    }
+
+    /** 读取 div 目录文件（标记/模板/js/css/extends/contract）；strict=true 时未知文件报错 */
+    private void readDivFiles(DivInfo info, File dir, boolean strict) {
         for (File f : SiteBuilder.sortedFiles(dir)) {
             String n = f.getName();
             if (n.equals(".global")) { info.global = true; continue; }
             if (n.equals(".adds")) { info.adds = true; continue; }
+            if (n.equals(".extends")) {
+                info.extendsType = sb.readFile(f).lines().map(String::trim)
+                        .filter(s -> !s.isEmpty()).findFirst().orElse("");
+                continue;
+            }
+            if (n.equals(".contract")) { readContract(f, info); continue; }
             if (n.equals("template.html")) { info.template = f; continue; }
             if (n.startsWith(".")) continue;
             if (n.endsWith(".js")) info.js.add(f);
             else if (n.endsWith(".css")) info.css.add(f);
-            else sb.errors.add("div " + type + " 含未知文件: " + n);
+            else if (strict) sb.errors.add("div " + info.type + " 含未知文件: " + n);
         }
-        if (info.global && info.adds) sb.errors.add("div " + type + " 不能同时有 .global 与 .adds");
-        sb.divs.put(type, info);
+    }
+
+    /** .contract：跳过空行后首个非空行 = extend|override 模式（非关键字则视为钩子，模式缺省 extend）；其余行 = required 钩子 */
+    private void readContract(File f, DivInfo info) {
+        List<String> hooks = new ArrayList<>();
+        boolean first = true;
+        for (String l : sb.readFile(f).split("\n")) {
+            String s = l.trim();
+            if (s.isEmpty()) continue;
+            if (first) {
+                first = false;
+                switch (s) {
+                    case "_extend", "extend", "-extend" -> info.contractMode = "extend";
+                    case "_override", "override", "-override" -> info.contractMode = "override";
+                    default -> hooks.add(s);   // 非关键字 → 视为钩子，模式缺省 extend
+                }
+            } else hooks.add(s);
+        }
+        info.requiredHooks = hooks;
     }
 
     /** 预设 div 按需加载（sets/divs 未命中时回落 src/assets/divs） */
@@ -82,24 +116,86 @@ class SiteScan {
         File dir = new File(sb.presetDir, "divs/" + type);
         if (!dir.isDirectory()) return null;
         DivInfo info = new DivInfo(type, dir);
-        for (File f : SiteBuilder.sortedFiles(dir)) {
-            String n = f.getName();
-            if (n.equals(".global")) { info.global = true; continue; }
-            if (n.equals(".adds")) { info.adds = true; continue; }
-            if (n.equals("template.html")) { info.template = f; continue; }
-            if (n.startsWith(".")) continue;
-            if (n.endsWith(".js")) info.js.add(f);
-            else if (n.endsWith(".css")) info.css.add(f);
-        }
+        readDivFiles(info, dir, false);
         if (info.global && info.adds) sb.errors.add("预设 div " + type + " 不能同时有 .global 与 .adds");
         sb.divs.put(type, info);
         return info;
     }
 
+    // ==================== 继承解析（有效 DivInfo，memo） ====================
+
+    private final Map<String, DivInfo> effectiveDivs = new HashMap<>();
+
     DivInfo divOf(String type) {
-        DivInfo info = sb.divs.get(type);
-        if (info == null) info = loadPresetDiv(type);
-        return info;
+        DivInfo e = effectiveDivs.get(type);
+        if (e != null) return e;
+        e = resolve(type, new LinkedHashSet<>(), 0);
+        effectiveDivs.put(type, e);   // null（父缺失）也缓存，避免重复报错
+        return e;
+    }
+
+    private DivInfo resolve(String type, Set<String> seen, int depth) {
+        if (!seen.add(type)) { sb.errors.add("div 继承环: " + type); return null; }
+        if (depth >= 8) { sb.errors.add("div 继承链过长（上限 8）: " + type); return null; }
+        DivInfo raw = sb.divs.get(type);
+        if (raw == null) raw = loadPresetDiv(type);
+        if (raw == null) return null;
+        DivInfo out = new DivInfo(type, raw.dir);
+        if (raw.extendsType == null || raw.extendsType.isEmpty()) {
+            copyOf(out, raw);
+            out.chainTypes = List.of(type);
+            return out;
+        }
+        DivInfo parent = resolve(raw.extendsType, seen, depth + 1);
+        if (parent == null) {
+            sb.errors.add("div " + type + " 的父类型不存在: " + raw.extendsType);
+            copyOf(out, raw);   // 降级：叶子 raw（构建最终因错误失败）
+            out.chainTypes = List.of(type);
+            return out;
+        }
+        List<String> chain = new ArrayList<>(parent.chainTypes);
+        chain.add(type);
+        out.chainTypes = chain;
+        // 根→叶合并：模板后者覆盖；js/css 串联父前子后
+        out.js.addAll(parent.js);
+        out.css.addAll(parent.css);
+        out.template = parent.template;
+        if (raw.template != null) out.template = raw.template;
+        out.js.addAll(raw.js);
+        out.css.addAll(raw.css);
+        // 标记：并集沿链；冲突时子 .contract 写 override 才可覆盖父标记，否则报错
+        String parentMark = parent.adds ? "adds" : parent.global ? "global" : null;
+        String ownMark = raw.adds ? "adds" : raw.global ? "global" : null;
+        if (ownMark == null) {
+            out.global = parent.global;
+            out.adds = parent.adds;
+        } else if (parentMark == null || parentMark.equals(ownMark)) {
+            applyMark(out, ownMark);
+        } else if ("override".equals(raw.contractMode)) {
+            applyMark(out, ownMark);
+        } else {
+            sb.errors.add("div 继承链上 .adds/.global 互斥: " + type
+                    + "（父为 " + parentMark + "，子为 " + ownMark + "；.contract 写 override 可覆盖）");
+            applyMark(out, ownMark);   // 降级按子处理（构建最终失败）
+        }
+        out.contractMode = raw.contractMode;
+        out.requiredHooks = raw.requiredHooks;
+        return out;
+    }
+
+    private static void copyOf(DivInfo dst, DivInfo src) {
+        dst.template = src.template;
+        dst.js.addAll(src.js);
+        dst.css.addAll(src.css);
+        dst.global = src.global;
+        dst.adds = src.adds;
+        dst.contractMode = src.contractMode;
+        dst.requiredHooks = src.requiredHooks;
+    }
+
+    private static void applyMark(DivInfo info, String mark) {
+        info.adds = "adds".equals(mark);
+        info.global = "global".equals(mark);
     }
 
     // ==================== 页面扫描 ====================
@@ -186,6 +282,9 @@ class SiteScan {
     void scanData() {
         File root = new File(sb.setsDir, "data");
         if (!root.isDirectory()) return;
+        // shower 为生成器保留目录（shared 共享索引输出 assets/data/shower/），避免与用户数据碰撞
+        if (new File(root, "shower").isDirectory())
+            sb.errors.add("sets/data/shower 为生成器保留目录（shower 共享索引输出），请改名");
         scanDataDir(root, "");
     }
 
@@ -263,5 +362,112 @@ class SiteScan {
             sb.queue.add(new SiteBuilder.Queued(
                     new File(sb.outputDir, "assets/global/codeui/" + e.getKey()), sb.readFile(e.getValue()), 3));
         }
+    }
+
+
+    // ==================== 页面索引（search/shower 数据源；渲染前预收集） ====================
+
+    void collectPageIndex() {
+        for (Page p : sb.pages) {
+            Map<String, String> e = new LinkedHashMap<>();
+            e.put("link", p.index ? "" : "pages/" + p.rel + p.name + "/");
+            e.put("date", ymd(p.file.lastModified()));
+            if (p.bareMd) {
+                String md = sb.readFile(p.file);
+                e.put("type", "md");
+                e.put("title", firstHeading(md, p.name));
+                e.put("excerpt", firstParagraph(md));
+                e.put("text", md);
+                e.put("tags", "");
+                sb.pageIndex.add(e);
+                continue;
+            }
+            try {
+                com.fasterxml.jackson.databind.JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(p.file);
+                String name = root.path("name").asText("");
+                if (name.isEmpty()) name = p.name;
+                e.put("type", "json");
+                e.put("title", root.path("title").asText(name));
+                e.put("excerpt", root.path("description").asText(""));
+                StringBuilder tags = new StringBuilder();
+                com.fasterxml.jackson.databind.JsonNode t = root.path("tags");
+                if (t.isArray()) for (com.fasterxml.jackson.databind.JsonNode x : t) { if (tags.length() > 0) tags.append(','); tags.append(x.asText()); }
+                e.put("tags", tags.toString());
+                StringBuilder text = new StringBuilder();
+                collectMd(root.path("page"), text);
+                e.put("text", text.toString());
+                if (e.get("excerpt").isEmpty() && text.length() > 0) e.put("excerpt", excerptOf(text.toString()));
+                sb.pageIndex.add(e);
+            } catch (Exception ex) {
+                // 解析失败留给 buildJsonPage 的严格校验报错；索引跳过该页
+            }
+        }
+    }
+
+    private void collectMd(com.fasterxml.jackson.databind.JsonNode node, StringBuilder out) {
+        if (node == null) return;
+        if (node.isObject()) {
+            com.fasterxml.jackson.databind.JsonNode m = node.get("markdown");
+            if (m != null && m.isTextual()) appendMdText(m.asText(), out);
+            java.util.Iterator<java.util.Map.Entry<String, com.fasterxml.jackson.databind.JsonNode>> it = node.fields();
+            while (it.hasNext()) collectMd(it.next().getValue(), out);
+        } else if (node.isArray()) {
+            for (com.fasterxml.jackson.databind.JsonNode c : node) collectMd(c, out);
+        }
+    }
+
+    private void appendMdText(String field, StringBuilder out) {
+        if (field.startsWith("@")) {
+            String path = field.substring(1);
+            if (path.startsWith("pages/") || path.startsWith("data/")) {
+                File f = new File(sb.setsDir, path);
+                if (f.isFile()) { if (out.length() > 0) out.append('\n'); out.append(sb.readFile(f)); }
+            }
+            return;
+        }
+        if (out.length() > 0) out.append('\n');
+        out.append(field);
+    }
+
+    static String firstHeading(String md, String fallback) {
+        for (String l : md.split("\n")) {
+            String t = l.trim();
+            if (t.startsWith("# ")) return t.substring(2).trim();
+        }
+        return fallback;
+    }
+
+    static String firstParagraph(String md) {
+        StringBuilder sb2 = new StringBuilder();
+        boolean started = false;
+        for (String l : md.split("\n")) {
+            String t = l.trim();
+            if (t.isEmpty() || t.startsWith("#") || t.startsWith("```") || t.startsWith("|")
+                    || t.startsWith(">") || t.startsWith("-") || t.startsWith("[")) continue;
+            if (started && sb2.length() > 0) sb2.append(' ');
+            sb2.append(t);
+            started = true;
+            if (sb2.length() > 80) break;
+        }
+        return sb2.length() > 80 ? sb2.substring(0, 80) + "…" : sb2.toString();
+    }
+
+    static String excerptOf(String text) {
+        String[] lines = text.split("\n");
+        StringBuilder sb2 = new StringBuilder();
+        for (String l : lines) {
+            String t = l.trim();
+            if (t.isEmpty() || t.startsWith("#") || t.startsWith("```") || t.startsWith("|")
+                    || t.startsWith(">") || t.startsWith("-") || t.startsWith("[") || t.startsWith("[^")) continue;
+            if (sb2.length() > 0) sb2.append(' ');
+            sb2.append(t);
+            if (sb2.length() > 80) break;
+        }
+        return sb2.length() > 80 ? sb2.substring(0, 80) + "…" : sb2.toString();
+    }
+
+    static String ymd(long millis) {
+        return java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
+                .format(java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault()));
     }
 }

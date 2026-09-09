@@ -1,0 +1,18 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+/* bar 家族基类样式：横向条布局 + 汉堡菜单响应式（≤640px 收折） + 明暗变量。 */
+.ssvul-bar { display: flex; align-items: center; gap: 1em; padding: .7em 1.2em;
+  border-bottom: 1px solid var(--bar-border, #d8dee7); flex-wrap: wrap; }
+.ssvul-bar .bar-brand { font-weight: 600; }
+.ssvul-bar .bar-links { display: flex; gap: 1em; margin-left: auto; }
+.ssvul-bar .bar-links a { text-decoration: none; }
+.ssvul-bar .bar-menu { display: none; margin-left: auto; background: none;
+  border: 1px solid #cdd4de; border-radius: 6px; padding: .2em .6em; cursor: pointer; }
+@media (max-width: 640px) {
+  .ssvul-bar .bar-menu { display: inline-block; }
+  .ssvul-bar .bar-links { display: none; width: 100%; flex-direction: column; gap: .4em; margin-left: 0; }
+  .ssvul-bar.bar-open .bar-links { display: flex; }
+}
+[data-theme="dark"] .ssvul-bar { border-bottom-color: #3a4258; }
+[data-theme="dark"] .ssvul-bar .bar-menu { border-color: #454e69; color: #e6e9ee; }
+[data-theme="green"] .ssvul-bar { border-bottom-color: #1f3a1f; }
+[data-theme="green"] .ssvul-bar .bar-menu { border-color: #2f6f2f; color: #b8f5b0; }

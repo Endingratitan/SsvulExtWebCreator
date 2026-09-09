@@ -18,6 +18,7 @@ public enum WebType {
     CONFIG,
     GLOBAL,
     ADDS,
+    CONTRACT,
     NULL;
 
     public static WebType checkName(String FileName){
@@ -32,6 +33,7 @@ public enum WebType {
             case "config" -> CONFIG;
             case "global" -> GLOBAL;
             case "adds" -> ADDS;
+            case "contract" -> CONTRACT;
             default -> NULL;
         };
     }

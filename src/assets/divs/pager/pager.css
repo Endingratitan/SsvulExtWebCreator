@@ -1,0 +1,8 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+.ssvul-pager a { display: inline-block; padding: .2em .6em; margin: 0 .15em; border: 1px solid #cdd4de; border-radius: 5px; text-decoration: none; }
+.ssvul-pager a.pager-cur { background: #eef1f5; font-weight: 600; }
+.ssvul-pager a.disabled { opacity: .4; }
+[data-theme="dark"] .ssvul-pager a { border-color: #454e69; }
+[data-theme="dark"] .ssvul-pager a.pager-cur { background: #262d3d; }
+[data-theme="green"] .ssvul-pager a { border-color: #2f6f2f; }
+[data-theme="green"] .ssvul-pager a.pager-cur { background: #162a16; }

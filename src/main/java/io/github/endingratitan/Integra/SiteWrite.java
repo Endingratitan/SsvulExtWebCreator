@@ -42,7 +42,7 @@ class SiteWrite {
                 c = replacePageRefs(c, q.depth);
                 if (!q.target.getName().endsWith(".js")) c = replaceBuckets(c, q.depth);   // JS 不做 bk/ 替换（误伤风险）
                 // minify：生成物 js（含站点 CODEUI.js）；vendor lib/ 与 raw 资产不碰
-                if (sb.minifyOn && q.target.getName().endsWith(".js")
+                if (sb.compressOn() && q.target.getName().endsWith(".js")
                         && !q.target.getPath().replace('\\', '/').contains("/lib/")) {
                     c = sb.minifyJs(c);
                 }
@@ -58,7 +58,7 @@ class SiteWrite {
             try {
                 Files.createDirectories(dst.getParentFile().toPath());
                 // 官方预设 js（md/js 等）在输出副本压缩（保许可头）；vendor lib/ 与 css 原样
-                if (sb.minifyOn && rel.endsWith(".js") && !rel.startsWith("lib/")) {
+                if (sb.compressOn() && rel.endsWith(".js") && !rel.startsWith("lib/")) {
                     Files.writeString(dst.toPath(), sb.minifyJs(sb.readFile(src)), StandardCharsets.UTF_8);
                 } else {
                     Files.copy(src.toPath(), dst.toPath(), StandardCopyOption.REPLACE_EXISTING);

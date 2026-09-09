@@ -21,7 +21,8 @@
 [data-theme="dark"] .md-body a { color: #7ab8ff; }
 [data-theme="dark"] .md-body h1, [data-theme="dark"] .md-body h2 { border-bottom-color: #3a4258; }
 [data-theme="dark"] .md-body h2 { color: #f2f5fa; }
-[data-theme="dark"] .md-body blockquote { color: #c9d2de; border-left-color: #5a6b8c; }
+[data-theme="dark"] .md-body blockquote { color: #c9d2de; border-left-color: #5a6b8c; background: #222838; }
+[data-theme="dark"] .md-table tbody tr:nth-child(even) { background: rgba(255,255,255,.03); }
 [data-theme="dark"] .md-body hr { border-top-color: #333d57; }
 [data-theme="dark"] .md-kbd { color: #e6e9ee; background: #282f3f; border-color: #454e69; }
 [data-theme="dark"] .md-table th, [data-theme="dark"] .md-table td { border-color: #3a4258; }

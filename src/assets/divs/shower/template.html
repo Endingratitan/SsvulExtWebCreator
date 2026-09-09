@@ -1,0 +1,9 @@
+<!-- SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan -->
+<!-- shower：数据驱动列表。
+     内联模式（默认）：构建期生成 data-json 内联注入（零请求、file:// 可用）；
+     共享模式（params shared:true）：按 dir 分片的共享索引 assets/data/shower/<dir>.json（dir 空 → index.json；
+     只发射实际声明的目录）+ 客户端过滤（fetch 依赖 http(s)，file:// 直开不可用）。
+     params：dir/pattern/count/order(date|name|random)/seed/fields/manual/shared -->
+<div class="ssvul-shower">
+  <ul class="shower-list"></ul>
+</div>

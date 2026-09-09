@@ -1,0 +1,10 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+.ssvul-palette-picker { display: inline-flex; gap: .4em; }
+.ssvul-palette-picker .palette-btn { padding: .3em .7em; border: 1px solid #cdd4de; border-radius: 6px;
+  background: #fff; cursor: pointer; font-size: .9em; }
+.ssvul-palette-picker .palette-btn:hover { border-color: #3b5bdb; }
+.ssvul-palette-picker .palette-btn.active { border-color: #3b5bdb; background: #e7edff; color: #2c3e80; font-weight: 600; }
+[data-theme="dark"] .ssvul-palette-picker .palette-btn { background: #262d3d; border-color: #454e69; color: #e6e9ee; }
+[data-theme="dark"] .ssvul-palette-picker .palette-btn.active { background: #3b5bdb; border-color: #5b72e0; color: #fff; }
+[data-theme="green"] .ssvul-palette-picker .palette-btn { background: #162a16; border-color: #2f6f2f; color: #b8f5b0; }
+[data-theme="green"] .ssvul-palette-picker .palette-btn.active { background: #2f6f2f; border-color: #4fa04f; color: #fff; }

@@ -30,32 +30,35 @@ class SitePages {
     // ==================== 全局文件 ====================
 
     void buildGlobals() {
+        // 页面渲染完成后聚合：.adds → web_global；.global → 独立 flat 文件（origin 去重 + 项级去重 + runtime）
         List<String> types = new ArrayList<>(sb.divs.keySet());
         Collections.sort(types);
-        StringBuilder js = new StringBuilder(), css = new StringBuilder();
+        List<SiteScan.DivInfo> addsDivs = new ArrayList<>();
         for (String type : types) {
-            SiteScan.DivInfo info = sb.divs.get(type);
-            if (!info.adds) continue;
-            for (File f : info.js) js.append(sb.readFile(f)).append('\n');
-            for (File f : info.css) css.append(sb.readFile(f)).append('\n');
+            SiteScan.DivInfo e = sb.scan.divOf(type);
+            if (e != null && e.adds) addsDivs.add(e);
         }
-        if (js.length() > 0) {
-            sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/js/web_global" + sb.jsSuffix()), js.toString(), 2));
-            sb.webGlobalJs = true;
-        }
-        if (css.length() > 0) {
-            sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/css/web_global.css"), css.toString(), 2));
-            sb.webGlobalCss = true;
+        if (!addsDivs.isEmpty()) {
+            String js = sb.aggregateDivJs(addsDivs);
+            String css = sb.aggregateDivCss(addsDivs);
+            if (!js.isEmpty()) {
+                sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/js/web_global" + sb.jsSuffix()), js, 2));
+                sb.webGlobalJs = true;
+            }
+            if (!css.isEmpty()) {
+                sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/css/web_global.css"), css, 2));
+                sb.webGlobalCss = true;
+            }
         }
         for (String type : types) {
-            SiteScan.DivInfo info = sb.divs.get(type);
-            if (!info.global) continue;
+            SiteScan.DivInfo e = sb.scan.divOf(type);
+            if (e == null || !e.global) continue;
+            if (e.js.isEmpty() && e.css.isEmpty()) continue;
             String flat = type.replace('/', '-');
-            StringBuilder j2 = new StringBuilder(), c2 = new StringBuilder();
-            for (File f : info.js) j2.append(sb.readFile(f)).append('\n');
-            for (File f : info.css) c2.append(sb.readFile(f)).append('\n');
-            if (j2.length() > 0) sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/js/" + flat + sb.jsSuffix()), j2.toString(), 2));
-            if (c2.length() > 0) sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/css/" + flat + ".css"), c2.toString(), 2));
+            String js = sb.aggregateDivJs(List.of(e));
+            String css = sb.aggregateDivCss(List.of(e));
+            if (!js.isEmpty()) sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/js/" + flat + sb.jsSuffix()), js, 2));
+            if (!css.isEmpty()) sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/css/" + flat + ".css"), css, 2));
         }
     }
 
@@ -82,8 +85,10 @@ class SitePages {
             outRel = "pages/" + p.rel + name + "/index.html";
             depth = SiteBuilder.depthOf("pages/" + p.rel + name);
         }
+        sb.currentPageDepth = depth;
 
         sb.mdOptions = new LinkedHashMap<>();
+        sb.pageGlobalRefs.clear();
         JsonNode mo = root.path("md-options");
         if (mo.isObject()) {
             Iterator<Map.Entry<String, JsonNode>> it = mo.fields();
@@ -137,14 +142,15 @@ class SitePages {
         sb.injectCodeuiJs = sb.codeuiJsExists && hasCode[0];
         sb.copyJsNeeded = hasCode[0] && codeUiItems.contains("copy-btn");
 
-        StringBuilder pageJs = new StringBuilder(), pageCss = new StringBuilder();
+        // 页面级 js/css：origin 去重 + 项级去重 + runtime（聚合助手）
+        List<SiteScan.DivInfo> pageDivs = new ArrayList<>();
         for (String type : pageTypes) {
-            SiteScan.DivInfo info = sb.divs.get(type);
-            if (info == null) continue;
-            for (File f : info.js) pageJs.append(sb.readFile(f)).append('\n');
-            for (File f : info.css) pageCss.append(sb.readFile(f)).append('\n');
+            SiteScan.DivInfo info = sb.scan.divOf(type);
+            if (info != null) pageDivs.add(info);
         }
-        boolean hasPageJs = pageJs.length() > 0, hasPageCss = pageCss.length() > 0;
+        String pageJsText = pageDivs.isEmpty() ? "" : sb.aggregateDivJs(pageDivs);
+        String pageCssText = pageDivs.isEmpty() ? "" : sb.aggregateDivCss(pageDivs);
+        boolean hasPageJs = !pageJsText.isEmpty(), hasPageCss = !pageCssText.isEmpty();
         // 页面文件以页面名命名（<name>.js/.css），与页面 html 同级；INDEX 页特例放 assets/index/
         String pageFileJs, pageFileCss;
         int pageFileDepth;
@@ -157,8 +163,8 @@ class SitePages {
             pageFileCss = "pages/" + p.rel + name + "/" + name + ".css";
             pageFileDepth = depth;
         }
-        if (hasPageJs) sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, pageFileJs), pageJs.toString(), pageFileDepth));
-        if (hasPageCss) sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, pageFileCss), pageCss.toString(), pageFileDepth));
+        if (hasPageJs) sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, pageFileJs), pageJsText, pageFileDepth));
+        if (hasPageCss) sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, pageFileCss), pageCssText, pageFileDepth));
 
         boolean themeActive = !root.path("theme").asText("").isEmpty();
         String links = tags.buildLinks(root, hasMd[0], depth) + tags.pageCssTag(hasPageCss, p.index, name, depth);
@@ -183,6 +189,7 @@ class SitePages {
 
     void buildBareMd(SiteScan.Page p) {
         sb.mdOptions = Collections.emptyMap();   // 裸 md 无 json，全用默认
+        sb.pageGlobalRefs.clear();
         // 裸页不注入引擎资源（性能优先：省流量）；渲染仍走默认 hljs 链（纯转义，与 v1 输出一致）
         sb.engineChain = EngineRegistry.resolve(List.of("hljs"), sb::warn);
         sb.engineAssets = List.of();
@@ -193,6 +200,7 @@ class SitePages {
         sb.injectCodeuiJs = false;
         String outRel = "pages/" + p.rel + p.name + "/index.html";
         int depth = SiteBuilder.depthOf("pages/" + p.rel + p.name);
+        sb.currentPageDepth = depth;
         String content;
         try {
             MarkdownRenderer.MdResult mr = MarkdownRenderer.renderParts(sb.readFile(p.file),
@@ -210,8 +218,8 @@ class SitePages {
         String base = sb.readPreset("page/BASE.html");
         sb.refPreset("md/css/md.css");
         String links = "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth) + "assets/pre/md/css/md.css\">\n"
-                + (sb.webGlobalCss ? "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth) + "assets/css/web_global.css\">\n" : "");
-        String scripts = sb.webGlobalJs ? "  <script src=\"" + SiteBuilder.depthPrefix(depth) + "assets/js/web_global" + sb.jsSuffix() + "\"></script>\n" : "";
+                + "{{WEBGLOBAL_CSS:" + depth + "}}";
+        String scripts = "{{WEBGLOBAL_JS:" + depth + "}}";
         base = base.replace("{{lang}}", "zh-CN")
                    .replace("{{htmlattrs}}", "")
                    .replace("{{title}}", MarkdownRenderer.escapeHtml(p.name))
@@ -248,6 +256,7 @@ class SitePages {
         String type = div.path("type").asText();
         SiteScan.DivInfo info = sb.scan.divOf(type);
         if (info == null) sb.errors.add(pageSrc + " 的 div 类型不存在: " + type + "（sets/divs 与 src/assets/divs 均未找到）");
+        else sb.checkContract(info);
 
         JsonNode attrs = div.get("attrs");
         String extraCls = (attrs != null && attrs.isObject() && attrs.has("class")) ? attrs.get("class").asText() : "";
@@ -257,7 +266,28 @@ class SitePages {
         sb2.append('"');
         appendAttrs(sb2, attrs);
         appendDataAttrs(sb2, div.get("params"));
+        sb2.append(" data-depth=\"").append(sb.currentPageDepth).append('"');
+        if (info != null && !info.chainTypes.isEmpty())
+            sb2.append(" data-family=\"").append(String.join(",", info.chainTypes)).append('"');
+        if (type.equals("search")) sb.searchNeeded = true;
+        if (type.equals("palette-picker")) sb.themePickerNeeded = true;
         sb2.append(">\n");
+        if (type.equals("shower")) {
+            boolean shared = div.path("params").path("shared").asBoolean(false);
+            if (shared) {
+                // 共享模式：按 dir 分片发射 assets/data/shower/<dir>.json（只发射实际声明的目录），客户端按 data-* 过滤
+                String dir = div.path("params").path("dir").asText("");
+                if (!dir.matches("[a-z0-9/_-]*") || dir.contains("..") || dir.startsWith("/")) {
+                    sb.errors.add(pageSrc + " 的 shower 共享模式 dir 不合法（小写字母数字/_-，禁止 .. 与前导 /）: " + dir);
+                } else {
+                    sb.showerDirs.put(dir, true);
+                }
+            } else {
+                // 内联注入数据（零请求、file:// 预览可用、离线可用）；</script> 防注入转义
+                String j = showerJson(div.get("params"), id).replace("<", "\\u003c");
+                sb2.append("<script type=\"application/json\" class=\"shower-data\">").append(j).append("</script>\n");
+            }
+        }
 
         // div 级 md-options：级联覆盖（只覆盖本 div 写出的键，其余继承页面级/父 div）
         Map<String, String> mdOpts = inheritedMd;
@@ -369,5 +399,87 @@ class SitePages {
         }
         try { return MarkdownRenderer.renderParts(sb.readFile(f), path, options, anchorPrefix); }
         catch (RuntimeException e) { sb.errors.add(e.getMessage()); return empty; }
+    }
+
+
+    // ==================== search/shower 数据 ====================
+
+    void emitSearchIndex() {
+        if (!sb.searchNeeded) return;
+        try {
+            String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(sb.pageIndex);
+            sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/data/search-index.json"), json, 2));
+        } catch (Exception e) {
+            sb.errors.add("搜索索引序列化失败: " + e.getMessage());
+        }
+    }
+
+    /** 共享 shower 索引：只发射 shared:true 实际声明的目录，每个 dir 一份分片（assets/data/shower/<dir>.json，dir 空 → index.json）。
+     *  去 text 全文的精简条目；pattern/order/count 仍由客户端按 data-* 过滤/排序/截断。 */
+    void emitShowerIndexes() {
+        if (sb.showerDirs.isEmpty()) return;
+        for (String dir : sb.showerDirs.keySet()) {
+            String pfx = dir.isEmpty() ? "" : dir + "/";
+            List<Map<String, String>> entries = new ArrayList<>();
+            for (Map<String, String> e : sb.pageIndex) {
+                String link = e.get("link");
+                if (!pfx.isEmpty() && !(link.equals(pfx) || link.startsWith(pfx))) continue;
+                Map<String, String> m = new LinkedHashMap<>();
+                m.put("link", link);
+                m.put("type", e.getOrDefault("type", ""));
+                m.put("title", e.getOrDefault("title", ""));
+                m.put("date", e.getOrDefault("date", ""));
+                m.put("excerpt", e.getOrDefault("excerpt", ""));
+                m.put("tags", e.getOrDefault("tags", ""));
+                entries.add(m);
+            }
+            String name = dir.isEmpty() ? "index.json" : dir + ".json";
+            try {
+                String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(entries);
+                sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/data/shower/" + name), json, 3));
+            } catch (Exception e) {
+                sb.errors.add("shower 共享索引序列化失败（dir=" + dir + "）: " + e.getMessage());
+            }
+        }
+    }
+
+    /** shower 数据：dir/pattern 过滤 pageIndex → order 排序（random 用 seed）→ count 截断 → 总文件 */
+    private String showerJson(JsonNode params, String id) {
+        String dir = params != null ? params.path("dir").asText("") : "";
+        String pattern = params != null ? params.path("pattern").asText("*.md") : "*.md";
+        int count = params != null ? params.path("count").asInt(5) : 5;
+        String order = params != null ? params.path("order").asText("date") : "date";
+        long seed = params != null ? params.path("seed").asLong(-1) : -1;
+        String fields = params != null ? params.path("fields").asText("title,date,excerpt") : "title,date,excerpt";
+        boolean manual = params != null && params.path("manual").asBoolean(false);
+        List<Map<String, String>> entries = new ArrayList<>();
+        for (Map<String, String> e : sb.pageIndex) {
+            String link = e.get("link");
+            String pfx = dir.isEmpty() ? "" : dir + "/";   // dir 形如 pages/blog（已含 pages/ 前缀）
+            if (!pfx.isEmpty() && !(link.equals(pfx) || link.startsWith(pfx))) continue;
+            if (pattern.equals("*.md") && !"md".equals(e.get("type"))) continue;
+            if (pattern.equals("*.json") && !"json".equals(e.get("type"))) continue;
+            entries.add(e);
+        }
+        int total = entries.size();
+        switch (order) {
+            case "name" -> entries.sort(Comparator.comparing(e -> e.get("title")));
+            case "random" -> Collections.shuffle(entries, new java.util.Random(seed < 0 ? System.nanoTime() : seed));
+            default -> entries.sort(Comparator.comparing(e -> e.get("date"), Comparator.reverseOrder()));
+        }
+        if (entries.size() > count) entries = new ArrayList<>(entries.subList(0, count));
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("version", 1);
+        data.put("id", id);
+        data.put("total", total);
+        data.put("manual", manual);
+        data.put("params", Map.of("dir", dir, "pattern", pattern, "count", count, "order", order, "fields", fields));
+        data.put("entries", entries);
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(data);
+        } catch (Exception e) {
+            sb.errors.add("shower 数据序列化失败: " + e.getMessage());
+            return "{}";
+        }
     }
 }

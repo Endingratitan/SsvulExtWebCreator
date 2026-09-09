@@ -1,0 +1,27 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+/* 终端绿主题（[data-theme="green"]）：黑底荧光绿 + 高对比。由 theme 键自动引入。 */
+[data-theme="green"] {
+  color-scheme: dark;
+  background: #0c120c;
+  --md-code-bg: #0c120c;  --md-code-fg: #b8f5b0;
+  --md-code-kw: #7dff9a;  --md-code-str: #d8ff7d;  --md-code-num: #ffd76e;
+  --md-code-com: #4f6f4f; --md-code-fn: #7dc8ff;   --md-code-fndef: #5fe0c8;
+  --md-code-cls: #ffe07d; --md-code-type: #7dd8ff; --md-code-enum: #d8a0ff;
+  --md-code-iface: #5ff0a0; --md-code-builtin: #ff8ab0; --md-code-const: #ffa070;
+  --md-code-var: #a8d8b0; --md-code-field: #ffc070; --md-code-fieldstatic: #e0c060;
+  --md-code-local: #a0d890; --md-code-param: #d0b0ff; --md-code-attr: #ff9ab0;
+  --md-code-prop: #ff8ad0; --md-code-tag: #ff8090;  --md-code-sel: #80e8c8;
+  --md-code-meta: #b0b0ff; --md-code-op: #ffe0a0;  --md-code-punct: #a8c0a8;
+  --md-code-tpl: #ffa8d0; --md-code-regex: #ff9090;
+  --codeui-radius: 10px;
+}
+[data-theme="green"] body { background: #0c120c; color: #b8f5b0; }
+[data-theme="green"] .ssvul-bar .bar-brand { color: #b8f5b0; }
+[data-theme="green"] .md-body a { color: #7dff9a; }
+[data-theme="green"] .md-body h1, [data-theme="green"] .md-body h2 { border-bottom-color: #1f3a1f; }
+[data-theme="green"] .md-body blockquote { color: #8fc88f; border-left-color: #2f6f2f; background: #122012; }
+[data-theme="green"] .md-table th, [data-theme="green"] .md-table td { border-color: #1f3a1f; }
+[data-theme="green"] .md-table th { background: #162a16; }
+[data-theme="green"] .md-body .md-code-inline { background: #162a16; }
+[data-theme="green"] .md-code-block { border-color: #1f3a1f; }
+[data-theme="green"] .md-code-copy { border-color: #2f4f2f; background: rgba(0,0,0,.5); color: #b8f5b0; }

@@ -45,7 +45,12 @@ class SiteTags {
                 sb2.append(depTag(tcss, depth, true));
             }
         }
-        if (sb.webGlobalCss) sb2.append("  <link rel=\"stylesheet\" href=\"").append(SiteBuilder.depthPrefix(depth)).append("assets/css/web_global.css\">\n");
+        // palette-picker 整页主题切换：链接全部内置主题 css（含未声明的主题，切换即生效）
+        if (sb.themePickerNeeded) {
+            File[] themes = new File(sb.presetDir, "md/css").listFiles((d, n) -> n.startsWith("md-code-") && n.endsWith(".css"));
+            if (themes != null) for (File t : themes) sb2.append(depTag("pre-assets/md/css/" + t.getName(), depth, true));
+        }
+        sb2.append("{{WEBGLOBAL_CSS:").append(depth).append("}}");
         // 站点级 CODEUI.css：存在 + 本页有代码块才注入（顺序在主题 css 之后，便于覆盖）
         if (sb.injectCodeuiCss) {
             sb2.append("  <link rel=\"stylesheet\" href=\"").append(SiteBuilder.depthPrefix(depth))
@@ -57,7 +62,7 @@ class SiteTags {
     String buildScripts(JsonNode root, int depth, boolean hasPageJs, boolean themeActive,
                         boolean indexPage, String name) {
         StringBuilder sb2 = new StringBuilder();
-        if (sb.webGlobalJs) sb2.append("  <script src=\"").append(SiteBuilder.depthPrefix(depth)).append("assets/js/web_global").append(sb.jsSuffix()).append("\"></script>\n");
+        sb2.append("{{WEBGLOBAL_JS:").append(depth).append("}}");
         JsonNode deps = root.path("deps");
         if (deps.isArray()) {
             Set<String> seenDeps = new LinkedHashSet<>();
@@ -125,14 +130,38 @@ class SiteTags {
         return "  <link rel=\"stylesheet\" href=\"" + href + "\">\n";
     }
 
+    /** b 沿 .extends 链能否到达 a（原始类型图） */
+    private boolean relatedGlobal(String a, String b) {
+        if (a.equals(b)) return true;
+        for (String base : new String[]{a, b}) {
+            String cur = base;
+            Set<String> seen = new HashSet<>();
+            while (cur != null && !cur.isEmpty() && seen.add(cur)) {
+                if (!base.equals(a) && cur.equals(a)) return true;
+                if (!base.equals(b) && cur.equals(b)) return true;
+                SiteScan.DivInfo raw = sb.divs.get(cur);
+                cur = raw == null ? null : raw.extendsType;
+            }
+        }
+        return false;
+    }
+
     private String depTag(String s, int depth, boolean cssPass) {
         if (s.startsWith("global:")) {
             String type = s.substring("global:".length());
-            SiteScan.DivInfo info = sb.divs.get(type);
+            SiteScan.DivInfo info = sb.scan.divOf(type);   // 有效信息（含继承链）
             if (info == null || !info.global) {
                 sb.errors.add("global: 引用的不是 .global div（或不存在）: " + type);
                 return "";
             }
+            // 父子 global 双引用警告（引叶子即可，双引会双执行）
+            for (String ref : sb.pageGlobalRefs) {
+                if (relatedGlobal(type, ref)) {
+                    sb.warn("父子 .global 双引用（引叶子即可）: " + type + " 与 " + ref);
+                    break;
+                }
+            }
+            sb.pageGlobalRefs.add(type);
             String flat = type.replace('/', '-');
             if (cssPass) {
                 return info.css.isEmpty() ? "" : "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth) + "assets/css/" + flat + ".css\">\n";
@@ -196,9 +225,15 @@ class SiteTags {
 
     void checkLeftover(String base, String what, String who) {
         int p = base.indexOf("{{");
-        if (p < 0) return;
-        int q = base.indexOf("}}", p);
-        String left = q >= 0 ? base.substring(p, q + 2) : base.substring(p, Math.min(base.length(), p + 30));
-        sb.errors.add(who + " 的 " + what + " 存在未注入占位符: " + left);
+        while (p >= 0) {
+            if (base.startsWith("{{WEBGLOBAL_JS:", p) || base.startsWith("{{WEBGLOBAL_CSS:", p)) {
+                p = base.indexOf("{{", p + 2);   // 全局占位符由回填趟处理，不在此检查
+                continue;
+            }
+            int q = base.indexOf("}}", p);
+            String left = q >= 0 ? base.substring(p, q + 2) : base.substring(p, Math.min(base.length(), p + 30));
+            sb.errors.add(who + " 的 " + what + " 存在未注入占位符: " + left);
+            return;
+        }
     }
 }

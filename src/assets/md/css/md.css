@@ -8,34 +8,61 @@
 .md-body h3 { font-size: 1.25em; }
 .md-body p { margin: 0 0 1em; }
 .md-body a { color: #3b5bdb; }
+.md-body a:hover { text-decoration: underline; }
 .md-body ul, .md-body ol { padding-left: 2em; margin: 0 0 1em; }
 .md-body li { margin: .25em 0; }
-.md-body blockquote { margin: 0 0 1em; padding: 0 1em; color: #5a636e; border-left: .25em solid #c2cbda; }
+.md-body blockquote { margin: 0 0 1em; padding: .6em 1em; color: #5a636e;
+  background: #f4f6f9; border-left: .25em solid #9bb0d8; border-radius: 0 8px 8px 0; }
 .md-body hr { border: none; border-top: 2px solid #e3e7ee; margin: 2em 0; }
 /* 分割线特性：--- / +++ / *** 各自 class，可分别定制渲染（可选） */
 hr.md-hr-star { border: none; border-top: 2px solid #b8c0cc; margin: 2em 0; }
 hr.md-hr-dash { border: none; border-top: 2px dashed #b8c0cc; margin: 2em 0; }
 hr.md-hr-plus { border: none; border-top: 4px double #b8c0cc; margin: 2em 0; }
+/* 表格斑马纹与表头 */
+.md-table th { text-align: left; }
+.md-table tbody tr:nth-child(even) { background: rgba(0,0,0,.025); }
+/* 目录 */
+.md-toc { border-left: 3px solid #c2cbda; padding-left: .8em; margin: 0 0 1em; }
+.md-toc ul { list-style: none; padding-left: 1em; margin: 0; }
+.md-toc a { text-decoration: none; }
+.md-toc .toc-h3 { padding-left: .8em; }
+/* 图片圆角 */
+.md-img { border-radius: 8px; }
 
 /* ===== code-ui 代码块外壳（构建期开关生成结构，站点 CODEUI.css 可覆盖） ===== */
-.md-code-block { position: relative; }
+/* 外壳容器：带边框/圆角/阴影，解决 floating 松散问题（视觉验收项） */
+.md-code-block { position: relative; margin: 0 0 1em; border: 1px solid #d8dee7; border-radius: 10px;
+  background: var(--md-code-bg, #fbfbf7); overflow: hidden; }
+.md-code-block > .md-pre { margin: 0; border: none; border-radius: 0; }
+/* 头部控制条让位：任何控制项（角标/复制/红绿灯）存在时，代码区顶部预留悬浮带，不遮挡首行代码 */
+.md-code-block.codeui-lang > .md-pre,
+.md-code-block.codeui-dots > .md-pre,
+.md-code-block.codeui-copy > .md-pre { padding-top: 2.6em; }
+.md-code-block.codeui-rounded { border-radius: var(--codeui-radius, 10px); }
 .md-code-block.codeui-bg { background-size: cover; background-position: center; }
-.md-code-block.codeui-rounded .md-pre { border-radius: var(--codeui-radius, 10px); }
-.md-code-lang { position: absolute; top: .5em; font-size: .78em; opacity: .85; text-transform: uppercase;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.md-code-lang { position: absolute; top: .5em; font-size: .78em; opacity: .85;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; background: rgba(0,0,0,.06);
+  padding: .08em .5em; border-radius: 4px; }   /* 原样显示围栏语言名（不强制大写） */
 .md-code-lang.pos-tr { right: .5em; }
 .md-code-lang.pos-tl { left: .5em; }
 .md-code-lang.pos-br { right: .5em; bottom: .5em; }
 .md-code-lang.pos-bl { left: .5em; bottom: .5em; }
-.md-code-block.has-copy .md-code-lang.pos-tr { right: 3.6em; }   /* 让位给右上角复制按钮 */
+.md-code-block.has-copy .md-code-lang.pos-tr { right: 4em; }   /* 让位给右上角复制按钮（固定宽） */
 .md-code-dots { position: absolute; top: .6em; left: .6em; display: inline-flex; gap: .35em; }
-.md-code-dots i { width: .7em; height: .7em; border-radius: 50%; display: block; }
+.md-code-dots i { width: .7em; height: .7em; border-radius: 50%; display: block;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.35); }   /* 深色下提亮描边 */
 .md-code-dots i:nth-child(1) { background: #ff5f57; }
 .md-code-dots i:nth-child(2) { background: #febc2e; }
 .md-code-dots i:nth-child(3) { background: #28c840; }
 .md-code-copy { position: absolute; top: .4em; right: .4em; font-size: .78em; padding: .15em .6em;
-  border-radius: 5px; border: 1px solid #cdd4de; background: rgba(255,255,255,.8); cursor: pointer; color: #454c56; }
+  min-width: 3.4em; text-align: center; box-sizing: border-box;   /* 固定宽：已复制 状态不再挤占角标 */
+  border-radius: 5px; border: 1px solid #cdd4de; background: rgba(255,255,255,.8); cursor: pointer; color: #454c56;
+  transition: background .15s; }
+.md-code-copy:hover { background: #fff; }
+[data-theme="dark"] .md-code-block { border-color: #3a4258; }
+[data-theme="dark"] .md-code-lang { background: rgba(255,255,255,.1); color: #e6e9ee; }
 [data-theme="dark"] .md-code-copy { background: rgba(0,0,0,.45); border-color: #3a4258; color: #e6e9ee; }
+[data-theme="dark"] .md-code-copy:hover { background: rgba(0,0,0,.65); }
 .md-body .md-code-inline { background: #eef1f5; border-radius: 6px; padding: .2em .4em; font-size: 85%; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .md-pre { background: var(--md-code-bg, #fbfbf7); border-radius: 6px; padding: 1em; overflow: auto; margin: 0 0 1em; }
 .md-code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 90%; color: var(--md-code-fg, #262b33); }

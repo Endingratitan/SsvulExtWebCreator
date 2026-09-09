@@ -19,6 +19,7 @@
     toggle: function () { set(this.get() === 'dark' ? 'light' : 'dark'); },
     setPalette: function (obj) {
       localStorage.setItem(PALETTE_KEY, JSON.stringify(obj));
+      localStorage.setItem('ssvul-palette-ver', '2');   // 新版写入的调色板带迁移标记，不会被首帧清除
       applyPalette(obj);
       global.dispatchEvent(new CustomEvent('palettechange', { detail: { palette: obj } }));
     },

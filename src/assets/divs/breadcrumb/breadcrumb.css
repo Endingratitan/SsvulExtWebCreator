@@ -1,0 +1,5 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+.ssvul-breadcrumb { font-size: .9em; padding: .4em 0; color: #5a636e; }
+.ssvul-breadcrumb a { text-decoration: none; }
+[data-theme="dark"] .ssvul-breadcrumb { color: #9aa4b2; }
+[data-theme="green"] .ssvul-breadcrumb { color: #7fa87f; }
