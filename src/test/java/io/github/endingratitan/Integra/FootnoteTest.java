@@ -8,6 +8,7 @@
  */
 package io.github.endingratitan.Integra;
 
+import io.github.endingratitan.Integra.MarkdownIntergra.MarkdownRenderer;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;

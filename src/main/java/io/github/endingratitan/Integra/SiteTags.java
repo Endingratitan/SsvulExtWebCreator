@@ -32,14 +32,15 @@ class SiteTags {
             if (!seen.add(s)) { sb.warn("deps 重复条目已去重: " + s); continue; }
             sb2.append(depTag(s, depth, true));
         }
-        if (hasMd) {
+        if (hasMd || sb.mdCsrNeeded) {   // md-csr 页：内容构建期不可知，但渲染出来同样需要 md.css（约 3KB）
             String mc = root.path("md-css").asText("");
             if (mc.isEmpty()) mc = "pre-assets/md/css/md.css";
             sb2.append(depTag(mc, depth, true));
         }
+        // md-csr 的额外 css（math=on → KaTeX；同目录 fonts/ 由 refPreset 连带复制）
+        for (String c : sb.mdCsrCss) sb2.append(depTag("pre-assets/" + c, depth, true));
         // theme 键自动带出对应主题 css（md/css/md-code-<theme>.css，不存在则跳过，作者可经 deps 自行引入）
-        String theme = root.path("theme").asText("");
-        if (!theme.isEmpty()) {
+        String theme = root.path("theme").asText("");        if (!theme.isEmpty()) {
             String tcss = "pre-assets/md/css/md-code-" + theme + ".css";
             if (new File(sb.presetDir, "md/css/md-code-" + theme + ".css").isFile()) {
                 sb2.append(depTag(tcss, depth, true));
@@ -63,9 +64,9 @@ class SiteTags {
         return sb2.toString();
     }
 
-    /** md-callout.css（预设，按需复制）：仅本页出现 callout 时注入 */
+    /** md-callout.css（预设，按需复制）：仅本页出现 callout 时注入；md-csr 页同样需要（运行时 md 可能带 callout） */
     String calloutBaseLink(int depth) {
-        if (!sb.hasCallout) return "";
+        if (!sb.hasCallout && !sb.mdCsrNeeded) return "";
         sb.refPreset("md/css/md-callout.css");
         return "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth)
                 + "assets/pre/md/css/md-callout.css\">\n";
@@ -127,8 +128,18 @@ class SiteTags {
                 sb.errors.add("engine 自动资源形态不合法: " + a);
             }
         }
-        // list 预设函数（ssvul:inline / ssvul:shared 等）：按名解析后按需复制到 assets/pre/list/ 并注入
+        // list 预设函数（ssvul:inline / ssvul:shared 等）：按名解析后按需复制到 assets/pre/div-libs/list/ 并注入
         for (String a : sb.listAssets) {
+            sb.refPreset(a);
+            sb2.append("  <script src=\"").append(SiteBuilder.depthPrefix(depth)).append("assets/pre/")
+               .append(a).append("\"></script>\n");
+        }
+        // md-csr：客户端 md 渲染库 + hljs（低频预设路径 → 全站共享、可哈希、可长期缓存）
+        for (String a : sb.mdCsrAssets) {
+            if (mdJs.contains("pre-assets/" + a)) {   // 作者已在 md-js/deps 里手写 → 跳过自动项，避免重复加载
+                sb.warn("md-js 与 md-csr 自动资源重复，已跳过自动项: " + a);
+                continue;
+            }
             sb.refPreset(a);
             sb2.append("  <script src=\"").append(SiteBuilder.depthPrefix(depth)).append("assets/pre/")
                .append(a).append("\"></script>\n");

@@ -8,6 +8,8 @@
  */
 package io.github.endingratitan.Integra;
 
+import io.github.endingratitan.Integra.MarkdownIntergra.MarkdownRenderer;
+
 import java.util.List;
 
 /**

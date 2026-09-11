@@ -51,7 +51,7 @@
 - 模板占位符：列表条目 = **`{{items}}`**（`divs/list/template.html`）。
 
 **8) 预设函数（构建期按名自动复制 + 注入，作者无需手写 `<script>`）**
-- 资源位于 `src/assets/list/*.js`，按需复制到 `output/assets/pre/list/*.js`（沿用 `pre-assets/` 既有机制）。
+- 资源位于 `src/assets/div-libs/list/*.js`，按需复制到 `output/assets/pre/div-libs/list/*.js`（沿用 `pre-assets/` 既有机制）。
 - 目前两个：`ssvul:inline`、`ssvul:shared`。名单扩充（例如目录清单、对象存储列表）**留待后续版本**，届时也记在这里。
 
 ## 0.3.1（2026-09）
@@ -84,3 +84,50 @@ bucket=[img,https://img.example.com,https://s3.example.com]
 - **嵌套上限统一放宽到 8 层**：引用/callout 由 2 → 8；列表由「simple 软 4/硬 6、strict 2」→ 8（`MdBlocks.NEST_LIMIT`，两处共用）。simple 超限只提示一次并继续渲染，strict 超限报错。
 - **嵌套 callout 去底色**（`.md-callout` 内层 `background: none`，保留左边框与图标）；**嵌套列表缩进收敛**（`ul ul` 等改为 `padding-left: 1.2em`）——都是深度放宽后的排版收敛。
 - 版本号：`0.3.0-alpha2` → **`0.3.1`**（`build.gradle`；`init` 骨架写入的版本随之变化）。
+
+## 0.3.2（2026-09）
+
+### `bucket` 新增 `键=值` 属性｜新增站点键 `session-ttl`｜新增预设 `ssvul:s3`
+
+**本批全部是向后兼容的新增**：不写新键、不用新预设的站点，产物不变（**无需迁移**）。
+
+**1) `bucket` 第 3 段起改为 `键=值` 属性**
+
+```ini
+bucket=[bk,https://cdn.example.com,endpoint=https://s3.us-east-1.amazonaws.com/my-bucket,prefix=site/blog]
+```
+
+- 第 2 段 `href` 的语义明确为**公开访问基址**：继续负责 `调用名/…` 替换与 `offline=1` 的 outer 镜像，并新增"拼列表条目 link"一职；
+- 可用属性：`endpoint=`（列目录 API 基址，**不含 query**；S3 的 bucket 写在 path 或 host 均可）、`prefix=`（**存储侧根前缀**，不带前导/末尾斜线、禁空段与 `..`）、`ref=`（预留，GitHub 来源用）；
+- **兼容**：第 3 段**不带 `=`** 时仍按旧约定当 `EndPoint`（等价 `endpoint=值`）——`bucket=[bk,https://x]` 与 `bucket=[bk,https://x,https://s3…]` 行为不变；
+- **未知属性报错**（`kind=` 之类明确不做：预设名即协议）；属性重复、值为空、endpoint 缺协议/带 query、prefix 含空段或 `..` 都报错。
+
+**2) 新增站点键 `session-ttl`**：列目录型列表的**会话缓存时长（秒）**，默认 `86400`（24h），`0` = 默认不缓存。
+缓存存放在浏览器 `sessionStorage`（**不跨会话、不跨标签**，随标签页存活 → 页面挂机不会反复请求）；单个列表可用 `params.cache` 覆盖（`0` = 本次既不读也不写）。**不写此键 = 用默认值**。
+
+**3) 新增预设 `ssvul:s3`（纯 CSR 列目录，S3 兼容协议：R2/OSS/MinIO/COS）**
+
+```jsonc
+{ "type": "list", "params": { "src": "ssvul:s3", "dir": "", "pattern": "*.html", "fields": "date,title" } }
+```
+
+- 构建期**不生成任何数据**，只把桶信息解析成 `data-bk-*`（`bk-name`/`bk-endpoint`/`bk-href`/`bk-prefix`/`bk-ttl`）；浏览器实时请求 `GET {endpoint}?list-type=2&prefix=…&delimiter=/&max-keys=…`；
+- **只列当前层、不递归**（等价于真实 S3 的 `<CommonPrefixes>` 不返回）；
+- **`bk-` 是构建期注入的保留前缀**：手写 `params` 里以 `bk-` 开头的键会**报错**；
+- 条目：`link` = **绝对 URL**（`href` + 键去掉存储前缀），**不再叠加 `data-depth` 前缀**；`type` = 扩展名；`title` = 文件名去扩展名、`-`/`_`→空格；`date` = `LastModified` 的 UTC 日期；`excerpt`/`tags` 为空；
+- **排序**：按与构建期**同一条规则**（日期倒序 → 同日标题码点序 → 无日期最后）；
+- **此处的 `pattern` 是"键名 glob"**（如 `*.html`/`*.pdf`），与构建期来源那个作用于**页面类型**（`*`/`*.md`/`*.json`）的 `pattern` **不是同一套语义**；
+- 参数：`bucket`（选桶；只有一个桶可省，多个必须指定）/ `dir` / `pattern` / `max`（默认 1000=S3 上限）/ `pages`（默认 3，请求规模安全阀）/ `cache` / `fields` / `empty`；
+- 前置条件：桶允许**匿名 ListBucket + 读对象**，并配好 **CORS**；`file://` 不可用；`offline=1` 的站点会得到一条"运行时需要联网"的**构建警告**（每页最多一条，属预期可见化而非错误）。注意：该页产物里会出现 `data-bk-href`/`data-bk-endpoint` 两个**绝对 URL**（运行时列目录与点开所必需）——`offline=1` 的"未命中镜像"检查只针对 `调用名/…` 引用，不受影响。
+
+**4) 预设资产路径调整（产物路径变化）**：div 专属库从 `src/assets/<库名>/` 移入 **`src/assets/div-libs/<div 名>/`** —— `list` 的官方对接函数与 `md-csr` 的客户端渲染库都在此列，产物路径随之变为 **`assets/pre/div-libs/list/*.js`**、**`assets/pre/div-libs/md-csr/*.js`**。
+按名引用（`src: "ssvul:json"` 等）与自动注入**完全不受影响**；只有直接手写 `pre-assets/list/…` 或按产物路径配过 `_headers`/缓存规则的站点需要补上 `div-libs/`。
+
+**5) 调用名保留字（新增校验）**：`bucket` 调用名不得为 **`assets`** 或 **`pre-assets`** —— 与产物目录同名会让替换趟把 `assets/…` 产物路径误当桶引用替换（实测一页 14 处）。这两个名字此前的行为本就是坏的（只是不报错），现在构建期直接**报错**。
+
+**5) 新增 div `md-csr`（客户端渲染 markdown）**：`src/assets/divs/md-csr/`（薄壳）+ `src/assets/div-libs/md-csr/*.js`（10 个文件的渲染库，与 `Integra/MarkdownIntergra/` 一一对应）。取数三形态（桶内键 / `file` / `?p=` 查询参数）；渲染选项与构建期 md-options 同名（`raw-html` 默认 **off**＝转义原生 HTML、`link-policy` 默认 **relaxed**＝放行相对路径但拦危险协议——这是与构建期**有意**的两处差异，已由金标差分测试台钉住）；`math=on` 才注入 KaTeX（重资产按需）。渲染完成派发 `ssvulmd` 事件。**纯新增，不影响既有站点**。
+
+**6) `ssvul:s3` 新增 `link` 模板参数**：如 `"link": "./?p={key}"`（`{key}`=桶内键、`{path}`=去掉存储前缀的相对路径）——让桶列表条目指向你自己的 reader 页，而不是直链到桶里的原始 md。不写 = 与之前完全一致（`href` + 键）。
+
+**7) 版本号**：本批记为 **`0.3.2`**（`build.gradle` 的 `version` 待确认后同步）。
+`example-sets/` 增加 `pages/blog-s3.json`（列目录演示，含 `session-ttl=600` 与 `params.cache` 覆盖示例）；该页在示例站 `offline=1` 下会刻意产生一条构建警告。

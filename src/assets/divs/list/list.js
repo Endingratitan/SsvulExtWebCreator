@@ -55,6 +55,19 @@
     return p;
   }
 
+  /* 契约规范化排序：把条目排成构建期那种顺序（date 倒序 → 同日 title 升序 → 无 date 最后）。
+     与 SitePages.listEntries 的 Comparator **逐字等价**：两端都按 UTF-16 码元比较、都是稳定排序，
+     故连"相同条目的相对顺序"都一致。**禁用 localeCompare**（中文环境按拼音排，与 Java 不一致）。
+     只给"顺序本身无意义的数据源"用（如列目录）；inline/shared/json 的数据顺序是作者/构建期给的，不重排。 */
+  function sort(entries) {
+    return (entries || []).slice().sort(function (a, b) {
+      var da = (a && a.date) || '', db = (b && b.date) || '';
+      if (da !== db) return da < db ? 1 : -1;                 // ① date 倒序（'' 天然落最后）
+      var ta = (a && a.title) || '', tb = (b && b.title) || '';
+      return ta < tb ? -1 : (ta > tb ? 1 : 0);                // ② 同日按 title 码元序
+    });
+  }
+
   /* data-* → params（原样透传给对接函数；data-depth / data-family 是框架属性，不传） */
   function paramsOf(root) {
     var out = {}, attrs = root.attributes;
@@ -86,7 +99,7 @@
     box.appendChild(li);
   }
 
-  global.SsvulList = { item: item, prefixOf: prefixOf, defaultFields: DEFAULT_FIELDS };
+  global.SsvulList = { item: item, prefixOf: prefixOf, sort: sort, defaultFields: DEFAULT_FIELDS };
 
   global.SsvulDiv.register('list', {
     init: function (doc, root) {
@@ -103,7 +116,7 @@
           if (typeof it === 'string') box.insertAdjacentHTML('beforeend', it);   // 字符串按 HTML 插入（作者自负转义）
           else if (it) box.appendChild(it);
         }
-        root.dispatchEvent(new CustomEvent('ssvullist', { detail: { params: params, result: res } }));
+        root.dispatchEvent(new CustomEvent('ssvullist', { detail: { params: params, result: res, cached: !!(res && res.cached) } }));
       }).catch(function (e) { fail(root, (e && e.message) ? e.message : e); });
     }
   });

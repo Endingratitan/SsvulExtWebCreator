@@ -8,6 +8,8 @@
  */
 package io.github.endingratitan.Integra;
 
+import io.github.endingratitan.Integra.MarkdownIntergra.MarkdownRenderer;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -51,7 +53,7 @@ public class LexerCodeEngine implements CodeEngine {
     @Override
     public String renderCode(String code, String language) {
         Map<String, String> table = words.get(language);
-        if (table == null) return MarkdownRenderer.esc(code);   // accepts 已拦，防御性兜底
+        if (table == null) return MarkdownRenderer.escapeHtml(code);   // accepts 已拦，防御性兜底
         String s = code == null ? "" : code;
         boolean html = "html".equals(language);
         boolean py = "python".equals(language) || "py".equals(language);
@@ -176,12 +178,12 @@ public class LexerCodeEngine implements CodeEngine {
     }
 
     private static void span(StringBuilder out, String tk, String text) {
-        out.append("<span class=\"tk-").append(tk).append("\">").append(MarkdownRenderer.esc(text)).append("</span>");
+        out.append("<span class=\"tk-").append(tk).append("\">").append(MarkdownRenderer.escapeHtml(text)).append("</span>");
     }
 
     private static void flush(StringBuilder plain, StringBuilder out) {
         if (plain.length() > 0) {
-            out.append(MarkdownRenderer.esc(plain.toString()));
+            out.append(MarkdownRenderer.escapeHtml(plain.toString()));
             plain.setLength(0);
         }
     }
@@ -228,7 +230,7 @@ public class LexerCodeEngine implements CodeEngine {
                 i = j;
                 continue;
             }
-            out.append(MarkdownRenderer.esc(c));
+            out.append(MarkdownRenderer.escapeHtml(c));
             i++;
         }
         return out.toString();

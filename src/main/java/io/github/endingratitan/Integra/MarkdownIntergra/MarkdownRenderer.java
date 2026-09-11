@@ -6,15 +6,20 @@
  * Project: https://github.com/Endingratitan/SsvulExtWebCreator
  * Copyright (c) 2026 Endingratitan
  */
-package io.github.endingratitan.Integra;
+package io.github.endingratitan.Integra.MarkdownIntergra;
+
+import io.github.endingratitan.Integra.CodeEngine;
+import io.github.endingratitan.Integra.PassThroughCodeEngine;
 
 import java.util.*;
 
 /**
  * Markdown 渲染器（公共门面）。
  *
- * 结构：本类负责公共 API、错误/警告收集与共享工具；
- * 块级解析见 {@link MdBlocks}，行内解析见 {@link MdInline}，脚注子系统见 {@link MdFootnotes}。
+ * 结构：本类负责公共 API、错误/警告收集与共享工具（包内私有状态由各协作类共享）；
+ * 块级派发见 {@link MdBlocks}，判定辅助见 {@link MdBlockScan}，代码围栏与块数学见 {@link MdCodeBlocks}，
+ * 引用与 callout 见 {@link MdQuotes}，列表见 {@link MdLists}，表格见 {@link MdTables}，
+ * 行内解析见 {@link MdInline}，脚注子系统见 {@link MdFootnotes}，callout 类型表见 {@link Callouts}。
  *
  * 语法与模式见 README：md 语法（v1 子集）+ md-options（mode=simple|strict、
  * footnote-display=end|inline，均有默认值）。收集式报错（上限 20 条）一次性抛出。
@@ -29,8 +34,9 @@ public class MarkdownRenderer {
     public static void setCodeEngine(CodeEngine engine) { codeEngine = Objects.requireNonNull(engine); }
     public static CodeEngine getCodeEngine() { return codeEngine; }
 
-    /** HTML 转义（供引擎实现等复用） */
+    /** HTML 转义（供引擎实现等复用；char 重载避免热循环里为单个字符分配 String） */
     public static String escapeHtml(String s) { return esc(s); }
+    public static String escapeHtml(char c) { return esc(c); }
 
     private final String source;
     final List<String> errors = new ArrayList<>();

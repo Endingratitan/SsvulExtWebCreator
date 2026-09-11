@@ -41,6 +41,8 @@ public class SiteBuilder {
     final File setsDir, outputDir, presetDir;
     Map<String, List<String>> env = new LinkedHashMap<>();
     Map<String, String> buckets = new LinkedHashMap<>();
+    final Map<String, Map<String, String>> bucketAttrs = new LinkedHashMap<>();  // 调用名 -> {endpoint,prefix,ref}
+    int sessionTtl = 86400;                                    // session-ttl 键：会话缓存默认时长（秒），0=默认不缓存
     boolean categories, readmeOn, localFavicon;
     boolean envLoaded;
     Map<String, String> mdOptions = Collections.emptyMap();   // 页面 md-options（默认空 = 全部默认值）
@@ -71,9 +73,13 @@ public class SiteBuilder {
     final List<Map<String, String>> pageIndex = new ArrayList<>();  // 页面索引（search/list 数据源）：link/title/date/excerpt/text/tags
     boolean searchNeeded;                                           // 任页用到 search div → 输出 search-index.json
     final Map<String, Boolean> listDirs = new LinkedHashMap<>();    // list 的 ssvul:shared 声明的 dir 集合（按目录分片发射）
+    boolean offlineListWarned;                                      // 每页：列目录预设的 offline 警告只发一次（R16）
     String currentPageLink;                                         // 当前页输出链接（list 构建期渲染时排除自己）
     final List<String> listAssets = new ArrayList<>();              // 本页要注入的 list 预设 js（pre-assets 相对路径）
+    final List<String> mdCsrAssets = new ArrayList<>();             // 本页要注入的 md-csr 库 + hljs（低频预设路径，可长期缓存）
+    final List<String> mdCsrCss = new ArrayList<>();                // md-csr 要注入的 css（math=on → KaTeX；连带 fonts/）
     boolean themePickerNeeded;                                        // 页含 palette-picker → 链接全部内置主题 css
+    boolean mdCsrNeeded;                                              // 页含 md-csr → 注入 md.css / md-callout.css（内容构建期不可知）
     int currentPageDepth;                                           // 当前页深度（data-depth 属性注入）
     int minifyLevel = 2;                                       // -1 去重+注释保留 | 0 全关 | 1 去重不压缩 | 2 全开（默认）
     String minifierName = "simple";                            // minifier 键（v3 预留 closure）
@@ -225,6 +231,8 @@ public class SiteBuilder {
         acr.Read();
         env = acr.getConfig();
         buckets = acr.getBuckets();
+        bucketAttrs.clear();
+        bucketAttrs.putAll(acr.getBucketAttrs());
         categories = "1".equals(lastOf("categories"));
         readmeOn = "1".equals(lastOf("readme"));
         localFavicon = "1".equals(lastOf("local-favicon"));
@@ -242,6 +250,16 @@ public class SiteBuilder {
         };
         String mn = lastOf("minifier");
         minifierName = mn.isEmpty() ? "simple" : mn;
+        String st = lastOf("session-ttl");
+        if (!st.isEmpty()) {
+            try {
+                int v = Integer.parseInt(st);
+                if (v < 0) throw new NumberFormatException();
+                sessionTtl = v;
+            } catch (NumberFormatException e) {
+                errors.add("session-ttl 值须为非负整数（秒；0=默认不缓存）: " + st);
+            }
+        }
         envLoaded = true;
         // U1 词表：每次构建都重建 simple 实例（含/不含用户词表），避免注册表跨构建残留旧词
         Map<String, Map<String, String>> userWords = new LinkedHashMap<>();

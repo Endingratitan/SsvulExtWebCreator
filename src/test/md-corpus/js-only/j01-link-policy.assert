@@ -1,0 +1,12 @@
+# JS 侧策略断言（每行 contains:<子串> 或 notcontains:<子串>；# 注释）
+# 放宽：相对路径与预置资源正常成链
+contains:<a href="../about/">
+contains:../data/img/demo.png
+contains:<a href="pre-assets/md/js/md-copy.js">
+contains:<a href="#s1">
+# 拦截：危险协议不得出现在 href 里（只留文字）
+notcontains:href="javascript:
+notcontains:href="data:
+# 空白/空目标同样不成链
+notcontains:href="a b"
+notcontains:href=""

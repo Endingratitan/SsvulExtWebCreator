@@ -1,0 +1,4 @@
+# JS 侧断言：脚注错误路径不炸页面（Java 会抛错，故无金标）
+contains:[^9]
+contains:[^1234567]
+notcontains:<sup

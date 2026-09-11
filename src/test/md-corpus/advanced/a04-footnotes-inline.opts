@@ -1,0 +1,2 @@
+# footnote-display=inline：定义处就地渲染脚注块（文末不再生成脚注区）
+footnote-display=inline

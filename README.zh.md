@@ -47,7 +47,7 @@ bucket键的值将以数组存储，允许多次输入；其他键以最后一�
 |---------------|------------------------------------------------------------------|
 | cname         | 唯一必填项，缺失时程序报错；填0则不创建CNAME文件，认为你使用端口 |
 | server        | 是否部署在服务器上，是为1，不是为0，默认0                        |
-| bucket        | 外部 bucket 存储，值格式 `[调用名,href,EndPoint,...]`，如 `[bk,https://bucket.example.com]`；**允许多次输入**（多个 bucket）。第 3 段起为预留字段（第 3 段约定为 `EndPoint`）；内容中以 `调用名/...` 引用（如 bk/img/logo.png），生成时替换为 href。**旧写法 `(调用名,URL)` 不再接受**（见 [history.md](history.md)） |
+| bucket        | 外部数据源描述（**允许多次输入**=多个 bucket）。值格式 `[调用名,href,键=值...]`：第 1 段调用名；第 2 段 href=**公开访问基址**（页面内容里以 `调用名/...` 引用，如 bk/img/logo.png，生成时替换为 href；offline=1 命中 outer/ 镜像则本地替换）；第 3 段起为 `键=值` 属性——`endpoint=`（列目录 API 基址，`ssvul:s3` 用）、`prefix=`（存储侧根前缀）、`ref=`（预留）。**兼容**：第 3 段不带 `=` 时仍按旧约定当 endpoint。**旧写法 `(调用名,URL)` 不再接受**（见 [history.md](history.md)） |
 | categories    | divs中是否需要一中间层目录作为categories，需要1，不要0，默认为0  |
 | readme        | 会不会在output中添加readme等md文件，需要为1，不要为0，默认为0    |
 | local-favicon | favicon目录是在项目中还是云端，0为项目，1为bucket，默认0         |
@@ -55,6 +55,7 @@ bucket键的值将以数组存储，允许多次输入；其他键以最后一�
 | engine-words  | 词表扩展：`(语言,data/词表路径)` 可多条；为 simple 引擎追加关键字（行格式 `词` 或 `词:tokenid`，tokenid 见 token-map.js 的 tk 集合，缺省 kw）        |
 | minify        | 优化档：**2=全开（默认**：去重+压缩）、1=去重不压缩、0=全关、-1=去重且被覆写代码以注释保留原位（调试对比）；档 ≥1 生成物用 `.min.js` 后缀        |
 | minifier      | 压缩引擎：simple（默认，自编稳定实现——局部名改写+注释/空白压缩，含 eval/解构等自动降级护栏）；v3 预留 closure（Google Closure Compiler）接入          |
+| session-ttl   | 会话缓存时长（秒），默认 86400（24h），0=默认不缓存。作用于列目录型列表（`ssvul:s3`）：列目录结果存浏览器 `sessionStorage`（**不跨会话/标签**，随标签页存活 → 挂机页面不反复请求），过期才重新请求；单个列表可用 `params.cache` 覆盖 |
 
 #### divs/
 divs里面可有子目录作为categories，所有子目录下再有单独的div类型目录；
@@ -75,7 +76,8 @@ div下可有JS、CSS文件与template.html模板，不能有图片、json等数�
 |---|---|---|
 | bar / navbar / topbar | brand | 导航家族：基类 bar（汉堡响应式）← navbar ← topbar（sticky+滚动阴影）；家族注册名=bar |
 | search | placeholder、limit | 站内静态搜索（构建期生成 assets/data/search-index.json，路径按 div 的 data-depth 解析） |
-| list | src、dir、pattern、fields（其余键原样透传给对接函数） | 列表组件：**数据来源与渲染时机全由 `src` 决定**——不写 = `build:page-index`（构建期直接出静态条目、**零 JS**）；`ssvul:inline`（构建期内联 + 客户端预设渲染，零请求/file:// 可用）；`ssvul:shared`（按目录分片 `assets/data/list/<dir>.json`，多页共用一份字节，fetch 依赖 http(s)）；`ssvul:json`（**纯 CSR**：客户端读你自己维护的 JSON 文件，构建期不生成任何数据——**只上传文件就更新**）；`<你的函数名>`（构建期只写 `data-src`，由你的外接函数返回 `{items:[…]}`） |
+| list | src、dir、pattern、fields（其余键原样透传给对接函数） | 列表组件：**数据来源与渲染时机全由 `src` 决定**——不写 = `build:page-index`（构建期直接出静态条目、**零 JS**）；`ssvul:inline`（构建期内联 + 客户端预设渲染，零请求/file:// 可用）；`ssvul:shared`（按目录分片 `assets/data/list/<dir>.json`，多页共用一份字节，fetch 依赖 http(s)）；`ssvul:json`（**纯 CSR**：客户端读你自己维护的 JSON 文件，构建期不生成任何数据——**只上传文件就更新**）；`ssvul:s3`（**纯 CSR 列目录**：构建期只把桶信息注入 `data-bk-*`，浏览器实时列桶目录（S3 兼容协议：R2/OSS/MinIO/COS），**构建一次后往桶里加/删/改文件即刷新可见**；需桶允许匿名 ListBucket 且配好 CORS，`file://` 不可用，`offline=1` 时构建期发一条警告；`link` 模板如 `./?p={key}` 可让条目指向你自己的 reader 页）；`<你的函数名>`（构建期只写 `data-src`，由你的外接函数返回 `{items:[…]}`） |
+| md-csr | bucket、key、href、file、query、math（+ raw-html / link-policy / toc / footnote-display / callout-title / codeui.*） | **客户端渲染 markdown**：打开页面时 fetch 一个 md（桶内键 / 任意 URL / `?p=` 查询参数）并用与构建期**逐字节同构**的渲染器渲染 → 站点构建一次后，**上传 md + 刷新即渲染**。需要 fetch（`file://` 不可用）；默认 `raw-html=off`（转义原生 HTML，防存储型 XSS）；`math=on` 才注入 KaTeX（重资产按需）；完整说明见 [docs/UserWrite/md-csr-guide.md](docs/UserWrite/md-csr-guide.md) |
 | breadcrumb | root-label、separator | 按 URL 路径生成面包屑（纯客户端） |
 | backtotop | threshold | 回到顶部按钮 |
 | pager | current、total、base | 分页导航 |
@@ -284,7 +286,7 @@ simple/strict 行为矩阵（⑥ 定稿；两模式支持面相同，仅容忍�
 
 | 层 | 校验点 |
 |---|---|
-| Environment.config | 未知键报错；语法缺 '=' 报错；cname 必填且禁协议；bucket 格式/重复/协议校验；engine-words 语言名、路径（须 data/）、tokenid 白名单 |
+| Environment.config | 未知键报错；语法缺 '=' 报错；cname 必填且禁协议；bucket 格式/重复/协议/**属性（endpoint/prefix/ref）**校验；session-ttl 须为非负整数；engine-words 语言名、路径（须 data/）、tokenid 白名单 |
 | page json（schema 层） | 未知键报错；类型不符报错；div-ID 格式与重复键；params 键名禁 content/children；deps 形态白名单（http(s)://、pre-assets/、global:…）；engine 类型 |
 | page json（运行时） | deps 仅 .js/.css 且重复条目去重+警告；md-js 形态与重复去重；@page/@data/md 引用目标存在性；模板未声明占位符；engine 未知名警告回退；md 引用路径形态 |
 | divs 目录 | 类型 kebab-case；目录内仅 js/css/template.html/.global/.adds，未知文件报错；.global 与 .adds 互斥；global: 引用必须指向 .global div |
@@ -312,14 +314,16 @@ simple/strict 行为矩阵（⑥ 定稿；两模式支持面相同，仅容忍�
 - `page/`：页面外壳 BASE.html（生成器内部使用）
 - `md/`：md 相关（css 主题与调色板、js 增强：md-highlight / token-map / md-math / md-theme；**callout 视觉 `md/css/md-callout.css` 按需注入**）
 - `divs/`：预设组件（如 theme-switcher，sets/divs 未命中时回落此处）
+- `div-libs/`：**div 专属库**（`list/` 官方对接函数 inline/shared/json/s3；`md-csr/` 客户端 md 渲染库）——由构建期按需注入，产物落在 `assets/pre/div-libs/<div 名>/`：**全站共享一份字节、路径稳定**，可配长期缓存（见 md-csr 指南的 `_headers` 配方）
 - `global/`：站点级逃生舱官方模板（`codeui/`、`callout/`；复制到 sets 后才生效，永不自动注入）
 - `lib/`：第三方 vendor（hljs、katex，附许可证文件）
+- `runtime/`：构建期注入的运行时库（`ssvul-div.js` 的 register/super/initAll）
 预设以 `pre-assets/<路径>` 引用，对应 src/assets/<路径>；生成时按需复制到 output/assets/pre/<路径>（未引用不复制，引用缺失报错），
 输出文本中的字串 `pre-assets/` 替换为按深度修正的 `assets/pre/`
 可以提供已有的CSR等功能
 
 ### 示例项目
-`example-sets/` 是最小示例站点（含 div 三态、theme、md 数学/高亮、callout 提示块与语言变体、bucket、站内互链、raw 文件夹）：
+`example-sets/` 是最小示例站点（含 div 三态、theme、md 数学/高亮、callout 提示块与语言变体、bucket、站内互链、raw 文件夹、list 的四种来源——含 `ssvul:s3` 列目录演示页 `pages/blog-s3.json`，该页在 offline=1 下会刻意产生一条"运行时需要联网"的构建警告）：
 将其内容复制为 `sets/` 后运行程序，即可在 output/ 得到完整站点。
 
 ### 许可证

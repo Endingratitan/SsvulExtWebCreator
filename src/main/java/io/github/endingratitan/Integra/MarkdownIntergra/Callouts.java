@@ -6,7 +6,7 @@
  * Project: https://github.com/Endingratitan/SsvulExtWebCreator
  * Copyright (c) 2026 Endingratitan
  */
-package io.github.endingratitan.Integra;
+package io.github.endingratitan.Integra.MarkdownIntergra;
 
 import java.util.*;
 

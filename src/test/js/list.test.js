@@ -49,7 +49,7 @@ const repoRoot = path.resolve(__dirname, '../../..');
 function makeWindow(fetchImpl) {
   const w = {};
   const files = ['src/assets/runtime/ssvul-div.js', 'src/assets/divs/list/list.js',
-    'src/assets/list/inline.js', 'src/assets/list/json.js'];
+    'src/assets/div-libs/list/inline.js', 'src/assets/div-libs/list/json.js'];
   for (const rel of files) {
     const code = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
     new Function('window', 'document', 'fetch', 'CustomEvent', code)(
@@ -152,6 +152,25 @@ const entry = { link: 'pages/blog/a/', title: '甲文', date: '2026-09-11', exce
   const w10 = makeWindow(() => Promise.resolve({ ok: true, json: () => Promise.resolve([]) }));
   const res10 = await w10.SsvulListPresets.json(rootEl({}), { file: 'x.json', empty: '还没有文章' });
   ok(serialize(res10.items[0]).indexOf('list-empty') >= 0, 'empty 约定同样生效');
+
+  /* 5) 契约规范化排序（SsvulList.sort，列目录型预设用）与 ssvullist 事件的 cached 标记 */
+  console.log('契约规范化排序与事件标记');
+  const w11 = makeWindow();
+  const sorted11 = w11.SsvulList.sort([
+    { title: 'b', date: '2026-01-02' }, { title: 'a', date: '2026-01-02' },
+    { title: 'Z', date: '2026-01-03' }, { title: 'z', date: '' }
+  ]);
+  ok(sorted11.map(e => e.title).join(',') === 'Z,a,b,z', 'date 倒序 → 同日 title 码元序（Z 在 a 前，非拼音）→ 无 date 最后');
+  const arr11 = [{ title: 'b' }, { title: 'a' }];
+  w11.SsvulList.sort(arr11);
+  ok(arr11[0].title === 'b', 'sort 返回副本，不改调用方数组');
+
+  const w12 = makeWindow();
+  w12.cachedStub = function () { return { items: [], cached: true }; };
+  const r12 = rootEl({ 'data-src': 'cachedStub' });
+  w12.SsvulDiv.initAll(r12);
+  await new Promise(r => setTimeout(r, 0));
+  ok(r12._ev.length === 1 && r12._ev[0].detail.cached === true, 'ssvullist 事件带 cached 标记（作者可据此判断是否命中缓存）');
 
   console.log(failed === 0 ? '\n全部通过' : '\n失败 ' + failed + ' 项');  process.exit(failed === 0 ? 0 : 1);
 })();

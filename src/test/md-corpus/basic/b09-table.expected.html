@@ -1,0 +1,93 @@
+<div class="md-body">
+<div class="md-table-wrap">
+<table class="md-table">
+<thead>
+<tr>
+<th>左对齐</th>
+<th class="md-al-c">居中</th>
+<th class="md-al-r">右对齐</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a</td>
+<td class="md-al-c">b</td>
+<td class="md-al-r">c</td>
+</tr>
+<tr>
+<td>长一点的内容</td>
+<td class="md-al-c"><strong>粗</strong></td>
+<td class="md-al-r"><code class="md-code-inline">码</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>无对齐行的表格：</p>
+<div class="md-table-wrap">
+<table class="md-table">
+<thead>
+<tr>
+<th>列一</th>
+<th>列二</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>2</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>转义管道：</p>
+<div class="md-table-wrap">
+<table class="md-table">
+<thead>
+<tr>
+<th>列</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a | b</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>列数不一致（simple 容忍、strict 报错）：</p>
+<div class="md-table-wrap">
+<table class="md-table">
+<thead>
+<tr>
+<th>列一</th>
+<th>列二</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>只有一列</td>
+</tr>
+<tr>
+<td>1</td>
+<td>2</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>行内无管道不算表格：</p>
+<p>a | b</p>
+<div class="md-table-wrap">
+<table class="md-table">
+<thead>
+<tr>
+<th>前导与尾随管道被剥离</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>x</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>

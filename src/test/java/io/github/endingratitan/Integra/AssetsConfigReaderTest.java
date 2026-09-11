@@ -69,6 +69,55 @@ public class AssetsConfigReaderTest {
     }
 
     @Test
+    void bucketAttrsAndSessionTtl() throws Exception {
+        File f = write("Environment.config",
+                "cname=example.com\n"
+                + "bucket=[a,https://cdn.example.com/,endpoint=https://s3.example.com/bk,prefix=site/blog,ref=main]\n"
+                + "bucket=[b,https://b.example.com,https://s3.example.com/legacy]\n"
+                + "session-ttl=600\n");
+        AssetsConfigReader acr = new AssetsConfigReader(f);
+        assertTrue(acr.Read());
+        assertEquals("https://cdn.example.com", acr.getBuckets().get("a"));            // href 末尾斜线仍规范化
+        assertEquals("https://s3.example.com/bk", acr.getBucketEndpoint("a"));
+        assertEquals("site/blog", acr.getBucketPrefix("a"));
+        assertEquals("main", acr.getBucketRef("a"));
+        assertEquals("https://s3.example.com/legacy", acr.getBucketEndpoint("b"));    // 第 3 段裸值 = 旧约定 endpoint
+        assertEquals("", acr.getBucketPrefix("b"));                                   // 未声明 prefix
+        assertEquals("", acr.getBucketRef("b"));
+        assertEquals("600", acr.getConfig().get("session-ttl").get(0));               // 站点级新键在白名单内
+    }
+
+    @Test
+    void bucketAttrStrictness() throws Exception {
+        String[] bad = {
+                "bucket=[a,https://a.com,kind=s3]\n",                                       // 未知属性（kind 明确不做）
+                "bucket=[a,https://a.com,endpoint=https://x.com,endpoint=https://y.com]\n",  // 属性重复
+                "bucket=[a,https://a.com,endpoint=s3.example.com]\n",                        // endpoint 缺协议
+                "bucket=[a,https://a.com,endpoint=https://x.com?list-type=2]\n",             // endpoint 带 query
+                "bucket=[a,https://a.com,prefix=site/../etc]\n",                             // prefix 含 ..
+                "bucket=[a,https://a.com,prefix=/site//blog]\n",                             // prefix 空段/前导斜线
+                "bucket=[a,https://a.com,endpoint=]\n",                                      // 属性值为空
+                "bucket=[a,https://a.com,endpoint=https://x.com,https://y.com]\n",           // 第 4 段位置裸值
+                "bucket=[a,https://a.com,,prefix=site]\n",                                   // 空段
+                "bucket=[a,https://a.com,ref=with space]\n",                                 // ref 含空格
+        };
+        for (String line : bad) {
+            AssetsConfigReader acr = new AssetsConfigReader(write("bad.config", "cname=example.com\n" + line));
+            assertThrows(RuntimeException.class, acr::Read, line);
+        }
+    }
+
+    @Test
+    void bucketCallNameReserved() throws Exception {
+        // R17：调用名与产物目录同名 → replaceBuckets 会把 assets/… 产物路径误当桶引用替换（实测 14 处）
+        for (String line : new String[]{"bucket=[assets,https://a.com]\n", "bucket=[pre-assets,https://a.com]\n"}) {
+            AssetsConfigReader acr = new AssetsConfigReader(write("resv.config", "cname=example.com\n" + line));
+            RuntimeException e = assertThrows(RuntimeException.class, acr::Read, line);
+            assertTrue(e.getMessage().contains("不能是 assets / pre-assets"), e.getMessage());
+        }
+    }
+
+    @Test
     void jsonValidation() throws Exception {
         AssetsConfigReader unknownKey = new AssetsConfigReader(write("page.json",
                 "{\"name\":\"x\",\"unknown\":1,\"page\":{\"div-1\":{\"type\":\"t\"}}}"));

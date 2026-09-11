@@ -1,0 +1,15 @@
+{
+  "name": "blog-s3",
+  "title": "桶列表（纯 CSR · 上传即更新）",
+  "theme": "light",
+  "description": "list 的 ssvul:s3 来源：构建期只注入 data-bk-*，列表由浏览器实时列桶目录（S3 兼容：R2/OSS/MinIO/COS）",
+  "page": {
+    "div-1": { "type": "topbar", "params": { "brand": "Ssvul" } },
+    "div-2": { "type": "article", "params": { "title": "列目录：往桶里放文件即出现" },
+      "markdown": "本页的列表用 `src: ssvul:s3`：**构建期只把桶信息解析成 `data-bk-*` 属性**（`data-bk-endpoint` / `data-bk-href` / `data-bk-prefix` / `data-bk-ttl`），数据由浏览器在打开页面时实时列目录得到。\n\n- 站点**构建一次**之后，往桶里**加 / 删 / 改文件** → 刷新页面即更新，**不需要重新构建**\n- 桶信息来自 `Environment.config`：`bucket=[bk,<公开读基址>,endpoint=<列目录 API 基址>,prefix=<存储前缀>]`\n- 本节示例用 `session-ttl=600`（会话缓存 10 分钟）；本页第二个列表用 `cache: 60` 单独覆盖\n- 需要桶允许**匿名列目录**（ListBucket）并配好 **CORS**；`file://` 直开不可用；`offline=1` 的站点会因此得到**一条构建警告**（本示例站正是 offline=1，所以那条警告是预期的）\n- 桶里请放**浏览器能直接打开的文件**（html / 图片 / pdf）；放 `.md` 点开只是纯文本\n" },
+    "div-3": { "type": "list", "params": { "src": "ssvul:s3", "dir": "blog", "pattern": "*.html", "fields": "date,title", "empty": "桶里还没有文件（示例 endpoint 是占位域名，浏览器里会显示「加载失败」）" } },
+    "div-4": { "type": "article", "params": { "title": "覆盖参数：指定桶 + 缩短缓存 + 限制页数" },
+      "markdown": "`bucket` 选桶（站点只有一个时可省）、`cache` 覆盖 `session-ttl`、`max`/`pages` 限制请求规模、`pattern` 是**键名** glob。\n" },
+    "div-5": { "type": "list", "params": { "src": "ssvul:s3", "bucket": "bk", "cache": "60", "max": "50", "pages": "1", "fields": "date,title", "empty": "（示例占位 endpoint，浏览器里会显示「加载失败」）" } }
+  }
+}

@@ -1,0 +1,2 @@
+# toc=true：构建期目录（h2~h6 入目录，h1 排除）
+toc=true

@@ -9,6 +9,7 @@
 package io.github.endingratitan.Integra;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.github.endingratitan.Integra.MarkdownIntergra.MarkdownRenderer;
 
 import java.io.File;
 import java.util.*;
@@ -137,6 +138,10 @@ class SitePages {
         sb.injectCodeuiCss = false;
         sb.injectCodeuiJs = false;
         sb.listAssets.clear();
+        sb.mdCsrAssets.clear();
+        sb.mdCsrCss.clear();
+        sb.mdCsrNeeded = false;
+        sb.offlineListWarned = false;
         sb.currentPageLink = p.index ? "" : "pages/" + p.rel + name + "/";
         String content = renderDivGroup("", root.path("page"), "页面 " + name, pageTypes, jsTypes, hasMd, hasCode, hasCallout, sb.mdOptions);
         // 性能门控：本页确有块落到带客户端资源的成员（如 hljs）才注入引擎资源
@@ -212,6 +217,7 @@ class SitePages {
         sb.copyJsNeeded = false;
         sb.injectCodeuiCss = false;
         sb.injectCodeuiJs = false;
+        sb.offlineListWarned = false;
         String outRel = "pages/" + p.rel + p.name + "/index.html";
         int depth = SiteBuilder.depthOf("pages/" + p.rel + p.name);
         sb.currentPageDepth = depth;
@@ -284,6 +290,9 @@ class SitePages {
         sb2.append('"');
         appendAttrs(sb2, attrs);
         appendDataAttrs(sb2, div.get("params"));
+        // 列目录型 list（ssvul:s3）与 md-csr：桶信息在**构建期**解析成 data-bk-*（客户端零配置）；非该来源返回 ""
+        if (type.equals("list")) sb2.append(listBucketAttrs(div, pageSrc));
+        else if (type.equals("md-csr")) sb2.append(mdCsrAttrs(div, pageSrc));
         sb2.append(" data-depth=\"").append(sb.currentPageDepth).append('"');
         if (info != null && !info.chainTypes.isEmpty())
             sb2.append(" data-family=\"").append(String.join(",", info.chainTypes)).append('"');
@@ -351,8 +360,148 @@ class SitePages {
 
     // ==================== list 组件（src 决定数据来源与渲染时机） ====================
 
+    /** md-csr 客户端渲染库（对应 Integra/MarkdownIntergra 的 JS 镜像）+ hljs 三件套。
+     *  走**预设资产路径**（assets/pre/div-libs/md-csr/…）：全站共享一份字节、路径稳定 → 可哈希、可长期缓存
+     *  （⑧ 的"低频预设路径内嵌 6 位哈希 + immutable 一年"正是为这类资产准备的）。 */
+    private static final List<String> MD_CSR_LIB = List.of(
+            "div-libs/md-csr/md-renderer.js", "div-libs/md-csr/md-callouts.js", "div-libs/md-csr/md-scan.js", "div-libs/md-csr/md-tables.js",
+            "div-libs/md-csr/md-blocks.js", "div-libs/md-csr/md-inline.js", "div-libs/md-csr/md-code.js", "div-libs/md-csr/md-quotes.js",
+            "div-libs/md-csr/md-footnotes.js", "div-libs/md-csr/md-lists.js");
+
+    /** md-csr 的构建期解析：① 登记本页要注入的库资产（含 hljs，代码块上色刚需）；② 若 params.bucket 指定了桶，
+     *  注入 data-bk-href（取已知路径的 md 正文只需公开读基址，不需要列目录 endpoint）。 */
+    private String mdCsrAttrs(JsonNode div, String pageSrc) {
+        JsonNode params = div.get("params");
+        checkNoReservedBk(params, pageSrc);
+        sb.mdCsrNeeded = true;      // 页面含 md-csr → md.css / md-callout.css 按需注入（内容运行时才知）
+        // div 声明了 codeui.* → 与构建期 hasCode 同等对待：注入站点 CODEUI.css/js 与复制按钮脚本
+        if (params != null && params.isObject()) {
+            Iterator<String> ks = params.fieldNames();
+            boolean codeui = false;
+            while (ks.hasNext()) if (ks.next().startsWith("codeui.")) codeui = true;
+            if (codeui) {
+                if (params.path("codeui.items").asText("").contains("copy-btn")) sb.copyJsNeeded = true;
+                sb.injectCodeuiCss = sb.codeuiCssExists;
+                sb.injectCodeuiJs = sb.codeuiJsExists;
+            }
+        }
+        if (sb.mdCsrAssets.isEmpty()) {
+            // autoAssets() 给的是 pre-assets/ 前缀形态；mdCsrAssets 存的是预设根相对路径（与 listAssets 同规格）
+            for (String a : new PassThroughCodeEngine().autoAssets()) {
+                sb.mdCsrAssets.add(a.startsWith("pre-assets/") ? a.substring("pre-assets/".length()) : a);
+            }
+            sb.mdCsrAssets.addAll(MD_CSR_LIB);
+        }
+        // math=on：KaTeX 是重资产（css + 字体 + js，约 1MB），内容构建期不可知 → 由作者显式声明后再注入
+        if (params != null && "on".equalsIgnoreCase(params.path("math").asText(""))) {
+            if (!sb.mdCsrCss.contains("lib/katex/katex.min.css")) sb.mdCsrCss.add("lib/katex/katex.min.css");
+            if (!sb.mdCsrAssets.contains("lib/katex/katex.min.js")) sb.mdCsrAssets.add("lib/katex/katex.min.js");
+            if (!sb.mdCsrAssets.contains("md/js/md-math.js")) sb.mdCsrAssets.add("md/js/md-math.js");
+        }
+        if (params == null || !params.isObject() || !params.has("bucket")) return "";
+        String name = params.path("bucket").asText("");
+        String known = sb.buckets.isEmpty() ? "（当前没有 bucket）" : String.join(" / ", sb.buckets.keySet());
+        if (!sb.buckets.containsKey(name)) {
+            sb.errors.add(pageSrc + " 的 md-csr params.bucket 不存在: " + name + "（可用: " + known + "）");
+            return "";
+        }
+        return " data-bk-name=\"" + name + "\" data-bk-href=\"" + sb.buckets.get(name) + "\"";
+    }
+
+    /** `bk-` 是构建期注入的保留前缀：作者手写会在 HTML 里产生重复属性（浏览器只认第一个）→ 直接报错 */
+    private void checkNoReservedBk(JsonNode params, String pageSrc) {
+        if (params == null || !params.isObject()) return;
+        Iterator<String> names = params.fieldNames();
+        while (names.hasNext()) {
+            String n = names.next();
+            if (n.startsWith("bk-")) {
+                sb.errors.add(pageSrc + " 的 params." + n + " 是构建期注入的保留键（bk-*），请勿手写");
+            }
+        }
+    }
+
+    /** 列目录型 list（`ssvul:s3`）的**构建期**解析：选 bucket → 校验 → 注入 data-bk-*（name/endpoint/href/prefix/ttl）。
+     *  客户端只读属性、零配置。非列目录来源返回 ""。 */
+    private String listBucketAttrs(JsonNode div, String pageSrc) {
+        JsonNode params = div.get("params");
+        checkNoReservedBk(params, pageSrc);
+        String src = params != null ? params.path("src").asText("") : "";
+        if (!src.equals("ssvul:s3")) return "";
+        String known = sb.buckets.isEmpty() ? "（当前没有 bucket）" : String.join(" / ", sb.buckets.keySet());
+        // 选桶：params.bucket → 否则站点唯一 bucket → 否则报错
+        String name = params.path("bucket").asText("");
+        if (name.isEmpty()) {
+            if (sb.buckets.size() == 1) {
+                name = sb.buckets.keySet().iterator().next();
+            } else {
+                sb.errors.add(pageSrc + " 的 list src=ssvul:s3 需要 params.bucket 指定用哪个 bucket（可用: " + known + "）");
+                return "";
+            }
+        } else if (!sb.buckets.containsKey(name)) {
+            sb.errors.add(pageSrc + " 的 list params.bucket 不存在: " + name + "（可用: " + known + "）");
+            return "";
+        }
+        Map<String, String> attrs = sb.bucketAttrs.getOrDefault(name, Map.of());
+        String endpoint = attrs.getOrDefault("endpoint", "");
+        if (endpoint.isEmpty()) {
+            sb.errors.add(pageSrc + " 的 list src=ssvul:s3 需要给 bucket " + name + " 声明 endpoint，"
+                    + "例如 Environment.config 里写: bucket=[" + name + "," + sb.buckets.get(name)
+                    + ",endpoint=https://s3.us-east-1.amazonaws.com/my-bucket,prefix=site/blog]");
+            return "";
+        }
+        String dir = params.path("dir").asText("");
+        boolean badDir = !dir.isEmpty() && (!dir.matches("[a-z0-9/_-]*") || dir.contains("..") || dir.startsWith("/"));
+        if (badDir) {
+            sb.errors.add(pageSrc + " 的 list ssvul:s3 dir 不合法（小写字母数字/_-，禁止 .. 与前导 /）: " + dir);
+        }
+        // 教学式校验：一次把该列表的参数问题都报出来（不因 dir 出错就吞掉 max/cache 的错误）
+        checkRange(params, "max", 1, 1000, pageSrc);
+        checkRange(params, "pages", 1, 20, pageSrc);
+        // TTL：params.cache（本次）＞ session-ttl（站点）＞ 内置 86400，构建期折叠成一个数字给客户端
+        int ttl = sb.sessionTtl;
+        String cache = params.path("cache").asText("");
+        if (!cache.isEmpty()) {
+            try {
+                ttl = Integer.parseInt(cache);
+                if (ttl < 0) throw new NumberFormatException();
+            } catch (NumberFormatException e) {
+                sb.errors.add(pageSrc + " 的 list params.cache 须为非负整数（秒；0=不缓存）: " + cache);
+                ttl = sb.sessionTtl;
+            }
+        }
+        if (sb.offline && !sb.offlineListWarned) {
+            sb.offlineListWarned = true;      // 每页只发一次（同页多个列目录列表不重复刷屏）
+            sb.warn(pageSrc + " 的 list src=ssvul:s3 运行时需要联网（offline=1 的站点无法离线使用该列表）；"
+                    + "需离线请改用 build:page-index / ssvul:json");
+        }
+        return " data-bk-name=\"" + name + "\" data-bk-endpoint=\"" + endpoint + "\" data-bk-href=\"" + sb.buckets.get(name)
+                + "\" data-bk-prefix=\"" + joinPrefix(attrs.getOrDefault("prefix", ""), badDir ? "" : dir)
+                + "\" data-bk-ttl=\"" + ttl + "\"";
+    }
+
+    /** 可选数值参数的构建期范围校验（缺省不校验，客户端预设自带默认值） */
+    private void checkRange(JsonNode params, String key, int min, int max, String pageSrc) {
+        String v = params.path(key).asText("");
+        if (v.isEmpty()) return;
+        try {
+            int n = Integer.parseInt(v);
+            if (n < min || n > max) throw new NumberFormatException();
+        } catch (NumberFormatException e) {
+            sb.errors.add(pageSrc + " 的 list params." + key + " 须为 " + min + ".." + max + " 的整数: " + v);
+        }
+    }
+
+    /** 存储侧根前缀 + 页面 dir → 生效前缀（空段自动跳过，不出双斜线） */
+    private static String joinPrefix(String base, String dir) {
+        String b = base == null ? "" : base, d = dir == null ? "" : dir;
+        while (b.endsWith("/")) b = b.substring(0, b.length() - 1);
+        while (d.startsWith("/")) d = d.substring(1);
+        if (b.isEmpty()) return d;
+        return d.isEmpty() ? b : b + "/" + d;
+    }
+
     /** 处理 list div。返回构建期渲染的条目 HTML（build:* 来源），客户端来源返回 null。
-     *  src：build:page-index（默认，构建期静态 HTML、零 JS）| ssvul:inline | ssvul:shared | 作者函数名（裸名）。 */
+     *  src：build:page-index（默认，构建期静态 HTML、零 JS）| ssvul:inline | ssvul:shared | ssvul:json | ssvul:s3 | 作者函数名（裸名）。 */
     private String listHandle(JsonNode div, StringBuilder out, String pageSrc, boolean[] clientSide) {
         JsonNode params = div.get("params");
         String src = params != null ? params.path("src").asText("") : "";
@@ -390,13 +539,16 @@ class SitePages {
                 } else if (file.contains("..")) {
                     sb.errors.add(pageSrc + " 的 list ssvul:json file 不允许包含 ..: " + file);
                 }
+            } else if (preset.equals("s3")) {
+                // 纯 CSR 列目录：构建期不生成任何数据，只把桶信息注入 data-bk-*（见 listBucketAttrs）
+                // —— 站点构建一次之后，往桶里加/删/改文件即刷新可见，无需重建
             } else {
                 sb.errors.add(pageSrc + " 的 list src 未知的官方预设: " + raw
-                        + "（当前可用: ssvul:inline / ssvul:shared / ssvul:json）");
+                        + "（当前可用: ssvul:inline / ssvul:shared / ssvul:json / ssvul:s3）");
                 return null;
             }
             clientSide[0] = true;
-            String asset = "list/" + preset + ".js";
+            String asset = "div-libs/list/" + preset + ".js";
             if (!sb.listAssets.contains(asset)) sb.listAssets.add(asset);
             return null;
         }

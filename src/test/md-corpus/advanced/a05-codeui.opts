@@ -1,0 +1,5 @@
+# code-ui 全套：角标 + 红绿灯 + 复制按钮 + 圆角 + 背景图（构建期与客户端必须同构）
+codeui.items=lang-label,mac-dots,copy-btn
+codeui.rounded=true
+codeui.label-pos=tr
+codeui.bg=data/img/demo.png

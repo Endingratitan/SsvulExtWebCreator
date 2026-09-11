@@ -6,7 +6,7 @@
  * Project: https://github.com/Endingratitan/SsvulExtWebCreator
  * Copyright (c) 2026 Endingratitan
  */
-package io.github.endingratitan.Integra;
+package io.github.endingratitan.Integra.MarkdownIntergra;
 
 /**
  * 行内解析器（包内私有）。优先级链：\ 转义 → `code` → $math$ → 强调 → 链接/图片 → kbd → 脚注 → 自动链接/原生 HTML。
