@@ -13,7 +13,7 @@ import java.util.*;
 /**
  * simple 自编压缩引擎（稳定优先）：
  * ① 词法状态机切 token（字符串/模板/正则内的 //、/* 不误判）；
- * ② 局部名改写（var/let/const、函数参数、嵌套函数名 → a,b,c…；排除属性/对象键/全局面/解构/import/eval 等一切风险面）；
+ * ② 局部名改写（var/let/const、函数参数、嵌套函数名 → a,b,c…；排除属性/对象键/**成员位**（`?.`、方法简写、getter/setter）/全局面/解构/import/eval 等一切风险面）；
  * ③ 空白压缩：去注释（保首块=许可头）、去缩进/空行、安全并合行（ASI 受限集）、最小空格。
  *
  * 稳定护栏：文件含 eval / import / export / 解构声明 / 模板串 ${} → 整文件放弃改名（仅空白压缩）并记 notes；
@@ -44,6 +44,9 @@ public final class SimpleJsMinifier implements JsMinifier {
     private static final Set<String> RESTRICTED_PREV = Set.of(
             "return","throw","break","continue","yield","await","++","--","true","false","null","this","super",
             ")", "]","}");
+
+    /** 成员位前缀：其后紧跟 `(` 的标识符是方法名/访问器名（`{ name(){} }`、`get name(){}`），改名会破坏对象契约 */
+    private static final Set<String> MEMBER_PREV = Set.of("{", ",", "get", "set", "static", "async", "*");
 
     private static final class Tok {
         final int type;
@@ -234,9 +237,10 @@ public final class SimpleJsMinifier implements JsMinifier {
             String prev = k > 0 ? toks.get(k - 1).text : "";
             String next = k + 1 < toks.size() ? toks.get(k + 1).text : "";
             boolean inObject = depth > 0 && (prev.equals("{") || prev.equals(","));
-            if (prev.equals(".")) { excluded.add(t.text); continue; }                    // obj.name
+            if (prev.equals(".") || prev.equals("?.")) { excluded.add(t.text); continue; }   // obj.name / obj?.name（`?.` 是单个 token，曾漏排除）
             if (next.equals(":")) { excluded.add(t.text); continue; }                   // 键 / 标签
             if (inObject && (next.equals(",") || next.equals("}"))) { excluded.add(t.text); continue; }  // 简写键
+            if (next.equals("(") && MEMBER_PREV.contains(prev) && bodyFollows(toks, k + 1)) { excluded.add(t.text); continue; }   // 成员位：方法简写 / getter / setter（须跟函数体，避免误伤块首普通调用）
             if (depth == 0 && !fnParamZone) { excluded.add(t.text); continue; }         // 全局面引用（同名全局绑定）
         }
 
@@ -308,11 +312,33 @@ public final class SimpleJsMinifier implements JsMinifier {
         return true;
     }
 
+    /** parenIdx = `(` 的下标：按圆括号配对找 `)`，再看其后第一个有效 token 是否为 `{`——
+     *  这是"对象方法简写 / 类方法"的特征；普通函数调用（`{ doSearch(x); }`）后面是 `;`/`)`，不该被排除。 */
+    private static boolean bodyFollows(List<Tok> toks, int parenIdx) {
+        int depth = 0;
+        for (int p = parenIdx; p < toks.size(); p++) {
+            Tok t = toks.get(p);
+            if (t.type != PUNCT) continue;
+            if (t.text.equals("(")) depth++;
+            else if (t.text.equals(")")) {
+                if (--depth == 0) {
+                    for (int q = p + 1; q < toks.size(); q++) {
+                        if (toks.get(q).type == NL || toks.get(q).type == COMMENT) continue;
+                        return toks.get(q).type == PUNCT && toks.get(q).text.equals("{");
+                    }
+                    return false;
+                }
+            }
+        }
+        return false;
+    }
+
     private static boolean needSpace(String prev, String text, boolean identLike) {
         if (prev.isEmpty() || prev.equals("\n") || prev.equals("COMMENT")) return false;
         if (!identLike) return false;
         if (prev.equals("(") || prev.equals("[") || prev.equals("{") || prev.equals(",") || prev.equals(";")
-                || prev.equals(":") || prev.equals("?") || prev.equals("!") || prev.equals(".")) return false;
+                || prev.equals(":") || prev.equals("?") || prev.equals("!") || prev.equals(".")
+                || prev.equals("?.")) return false;   // 点号与可选链后不补空格（`obj?. a` 虽合法但难看）
         if (prev.equals("+") && text.equals("+")) return true;    // a + +b
         if (prev.equals("-") && text.equals("-")) return true;
         if (prev.equals("+") && text.startsWith("++")) return true;

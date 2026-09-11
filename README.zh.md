@@ -67,6 +67,7 @@ div下可有JS、CSS文件与template.html模板，不能有图片、json等数�
 - `.global`/`.adds` 标记：沿链**并集**；冲突时子可在 `.contract` 首非空行写 `override` 覆盖父标记（否则报错）；
 - 护栏：继承环/链长>8/父类型不存在 → 报错。
 - **JS 覆写消冗余**（构建期，词法判定）：同名**函数声明后到即胜**（父实现直接清除=覆写即替换）；`var x=…;` 紧邻恒等去重；顶层 `let/const/class` 跨文件重名 → 报错（串联后 SyntaxError）。
+- **CSS 同选择器后到即胜**（构建期，CssDeduper）：规范化选择器相同 → **前驱规则整块删除**（省流量的既定特性，非等价变换）。因此子 div 用同名选择器时**必须重写全部所需声明**——父规则中未被覆盖的属性会一起消失（父 `.ssvul-x{color:red;margin:0}` + 子 `.ssvul-x{color:blue}` → 只剩 `color:blue`）；要保留父的声明就换选择器或写全。`@media`/`@keyframes` 等带块 at-rule 整块保守跳过；`@import`/`@charset` 等无块 at-rule 以 `;` 为界。
 - **钩子契约**：div js 建议"只注册不执行"——`window.SsvulDiv.register(name,{init:fn})`（同名合并覆写）、`SsvulDiv.super(name,'init')`（子调父）、`initAll` 统一执行；`.contract` 其余非空行 = required 钩子，子置 null/缺失 → 构建警告（动态注册则通用警告）。
 
 **内置 div（src/assets/divs，可 .extends 继承）**：
@@ -163,7 +164,8 @@ offline=0 时：输出线上 URL，但若 outer 目录存在而引用未命中 �
 标题（# 后须空格，自动分配锚点 id：页面 div 内为 `div-ID 前缀` 形态如 `div-1-s1`（多 md div 不重复），裸 md 页面为 `s1/s2…`；`#锚点` 链接放行不校验，需写全带前缀的 id）、段落、**粗**/*斜*/_斜_（_ 两侧不得同时为字母数字）、`行内代码`、~~删除~~、
 [链接](url)、![图片](url)、列表（含任务列表 - [ ]；simple 不限层、strict 两层）、引用块（每行须 >；simple 超两层压平警告、strict 两层）、围栏代码块（```lang）、
 表格（:--- 对齐）、$...$ 与 \(...\) 行内数学、$$...$$ 与 \[...\] 块数学（块级支持多行）、[[key]] 按键、
-分割线（***/___ 实线、--- 虚线、+++ 双线，各自独立 class 可分别定制 CSS）、<https://> 自动链接、\ 转义（含 \$ 强制输出 $）。
+分割线（***/___ 实线、--- 虚线、+++ 双线，各自独立 class 可分别定制 CSS）、<https://> 自动链接、\ 转义（含 \$ 强制输出 $）、
+引用块**首行** `> [!TYPE]` = 提示块 callout（16 个内置类型 + 扩展类型；标题可自定义，详见「提示块 callout」小节）。
 链接/图片 URL 白名单：http(s)://、pre-assets/、@data/、@page/（站内互链）、#锚点、bucket 调用名。
 
 脚注：引用 `[^n]`（尊重用户编号、可重复引用）与 `[^.]`（自动补最小空位，显式编号全部占位）；
@@ -175,6 +177,7 @@ md 渲染选项（页面 json 顶层 `md-options`，全部有默认值可不写�
 - `mode`: `simple`（默认，GitHub 兼容：--- 分隔线、原生 HTML、不限列表嵌套、未闭合围栏不报错）| `strict`（严格报错，列表嵌套限两层）
 - `footnote-display`: `end`（默认，脚注统一放）| `inline`（就地显示）
 - `toc`: `true` 构建期生成目录（md-body 顶部，h2~h6 入目录、h1 排除；默认 false）
+- `callout-title`: `default`（默认，注入 callout 默认标签）| `none`（不出默认标题元素，作者自定义标题仍生效）
 div 条目内可写同名 `md-options`（可选，级联覆盖）：只覆盖写出的键，其余继承页面级（嵌套 div 继承父 div 有效值）；
 只作用于该 div 自己的 markdown，其标题锚点与脚注 id 自动加该 div-ID 前缀（如 div-1-s1、div-1-fn-1）。
 
@@ -197,6 +200,27 @@ simple/strict 行为矩阵（⑥ 定稿；两模式支持面相同，仅容忍�
 | 脚注定义未被引用 | 警告 | 报错 |
 | URL 白名单违反 / 空 URL | 报错 | 报错（安全不分模式） |
 | 脚注引用未定义 | 报错 | 报错 |
+
+#### 提示块 callout
+
+引用块**首行**写 `[!类型]` 即成提示块（类型名大小写不敏感，可带自定义标题）：
+
+```markdown
+> [!note]
+> 正文（可含列表/代码块/公式等任意块级内容）
+
+> [!tip] **自定义**标题
+> 写了标题就替换默认标签，标题走行内 md。
+```
+
+- **内置 16 类型**（默认中文标签）：`note` 注意 / `tip` 提示 / `important` 重要 / `warning` 警告 / `caution` 小心 / `info` 信息 / `success` 成功 / `question` 疑问 / `example` 示例 / `quote` 引用 / `abstract` 摘要 / `todo` 待办 / `danger` 危险 / `failure` 失败 / `bug` 缺陷 / `debug` 调试。
+- **非内置类型不算错误**：警告一次并按扩展类型渲染（类名 `md-callout-<type>` 保留、标题回落为类型名首字母大写 `release` → Release、配色落到中性兜底），随后用站点级 `CALLOUT.css` 上样式即可。
+- 产物契约：`<blockquote class="md-callout md-callout-note" data-callout="note">` + `<p class="md-callout-title md-callout-title-default"><span class="md-callout-label">注意</span></p>`（自定义标题不带 `-default` 类与 `label` 层）；图标由 CSS `mask` + data-URI 实现（**零 JS、零请求**）。
+- **按需注入**：`md-callout.css` 只在**本页出现 callout** 时注入（hasCallout 门控，与 code-ui 的 hasCode 同构）；无 callout 的页面零新增字节。
+- `md-options.callout-title`: `default`（默认）| `none`（不出默认标题；自定义标题仍生效），div 级可级联覆盖。
+- **扩展与覆写（站点级逃生舱）**：`sets/global/callout/CALLOUT.css`（基础）与 `CALLOUT.<lang>.css`（语言变体，`lang` 为占位符，如 `zh` / `zh-CN` / `en`）。**存在即注入** + hasCallout 门控；页面 `lang` 命中变体时**只注入变体**（变体自包含；想叠加就在变体首行 `@import url("CALLOUT.css");`），未命中回落 `CALLOUT.css`；同选择器后到即胜。目录内仅允许这两个文件名，多出报错。官方模板在 `src/assets/global/callout/`（永不自动注入）。
+
+> 完整指南：[docs/UserWrite/callout-guide.md](docs/UserWrite/callout-guide.md)（语法/16 类型表/扩展三配方/变量契约/校验与性能）。
 
 #### 代码高亮引擎（engine 换装）
 
@@ -264,7 +288,7 @@ simple/strict 行为矩阵（⑥ 定稿；两模式支持面相同，仅容忍�
 | page json（schema 层） | 未知键报错；类型不符报错；div-ID 格式与重复键；params 键名禁 content/children；deps 形态白名单（http(s)://、pre-assets/、global:…）；engine 类型 |
 | page json（运行时） | deps 仅 .js/.css 且重复条目去重+警告；md-js 形态与重复去重；@page/@data/md 引用目标存在性；模板未声明占位符；engine 未知名警告回退；md 引用路径形态 |
 | divs 目录 | 类型 kebab-case；目录内仅 js/css/template.html/.global/.adds，未知文件报错；.global 与 .adds 互斥；global: 引用必须指向 .global div |
-| global 目录 | codeui 域仅允许 CODEUI.css/CODEUI.js（多出报错）；未知域目录仅警告（未来扩展预留）；文件复制进 assets/global/codeui/ |
+| global 目录 | codeui 域仅允许 CODEUI.css/CODEUI.js（多出报错）；callout 域仅允许 CALLOUT.css / CALLOUT.<lang>.css（多出报错）；未知域目录仅警告（未来扩展预留）；文件复制进 assets/global/<域>/ |
 | data 目录 | 禁 js/css；readme 仅 .md 且文件名去重 |
 | favicon | 形态白名单；local-favicon=1 时禁 @favicon/ |
 | 输出替换 | pre-assets/@data 引用存在性；offline=1 时 bucket 引用必须命中 outer/ 镜像（未命中报错），offline=0 时未命中警告 |
@@ -286,15 +310,16 @@ simple/strict 行为矩阵（⑥ 定稿；两模式支持面相同，仅容忍�
 ### src/assets/
 官方预设目录（作为 sets/ 部分目录的预设），按功能分类：
 - `page/`：页面外壳 BASE.html（生成器内部使用）
-- `md/`：md 相关（css 主题与调色板、js 增强：md-highlight / token-map / md-math / md-theme）
+- `md/`：md 相关（css 主题与调色板、js 增强：md-highlight / token-map / md-math / md-theme；**callout 视觉 `md/css/md-callout.css` 按需注入**）
 - `divs/`：预设组件（如 theme-switcher，sets/divs 未命中时回落此处）
+- `global/`：站点级逃生舱官方模板（`codeui/`、`callout/`；复制到 sets 后才生效，永不自动注入）
 - `lib/`：第三方 vendor（hljs、katex，附许可证文件）
 预设以 `pre-assets/<路径>` 引用，对应 src/assets/<路径>；生成时按需复制到 output/assets/pre/<路径>（未引用不复制，引用缺失报错），
 输出文本中的字串 `pre-assets/` 替换为按深度修正的 `assets/pre/`
 可以提供已有的CSR等功能
 
 ### 示例项目
-`example-sets/` 是最小示例站点（含 div 三态、theme、md 数学/高亮、bucket、站内互链、raw 文件夹）：
+`example-sets/` 是最小示例站点（含 div 三态、theme、md 数学/高亮、callout 提示块与语言变体、bucket、站内互链、raw 文件夹）：
 将其内容复制为 `sets/` 后运行程序，即可在 output/ 得到完整站点。
 
 ### 许可证

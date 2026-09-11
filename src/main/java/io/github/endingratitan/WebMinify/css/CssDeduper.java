@@ -11,8 +11,13 @@ package io.github.endingratitan.WebMinify.css;
 import java.util.*;
 
 /**
- * CSS 同选择器去重（继承链串联场景）：规范化选择器文本相同 → 后者胜，删前驱（级联语义保证等价）。
- * at-rule（@media/@keyframes 等）整块保守跳过；keepRemovedAsComments=true 时被删规则以注释回插（* / 转义）。
+ * CSS 同选择器去重（继承链串联场景）：规范化选择器文本相同 → **后到胜，前驱整块删除**。
+ *
+ * **这是既定特性、不是等价变换**：后规则未声明的属性会随前驱一起消失，所以子 div 用同名选择器时
+ * 必须把需要的声明全部重写（见 docs/UserWrite/div-guide.md §5）。省流量的收益优先于等价性。
+ * at-rule（@media/@keyframes 等）整块保守跳过；无块 at-rule（@import/@charset/@layer a,b;）以 `;` 为界，
+ * 否则会把紧随其后的一条规则吞进 at-rule 段、使其不参与去重。
+ * keepRemovedAsComments=true 时被删规则以注释回插（* / 转义）；取原文必须用**输入偏移**（输出偏移在删除后已漂移）。
  */
 public final class CssDeduper {
 
@@ -20,30 +25,27 @@ public final class CssDeduper {
 
     public static String dedup(String css, boolean keepRemovedAsComments) {
         List<Seg> segs = segment(css);
-        Map<String, int[]> last = new HashMap<>();       // 规范化选择器 → 输出区间
+        Map<String, int[]> last = new HashMap<>();       // 规范化选择器 → {输出start, 输出end, 输入start, 输入end}
         StringBuilder out = new StringBuilder(css.length());
         for (Seg s : segs) {
             if (!s.rule) { out.append(css, s.start, s.end); continue; }
             String sel = normalize(css.substring(s.start, s.bodyStart));
-            int[] prev = last.put(sel, new int[]{out.length(), out.length()});   // 占位，稍后填
+            int[] prev = last.put(sel, new int[]{out.length(), out.length(), s.start, s.end});   // 占位，稍后填
             if (prev != null) {
-                // 前驱区间置空（保留注释位）
+                // 前驱区间置空（保留注释位）；取被删原文用输入偏移 prev[2..3]，替换区间用输出偏移 prev[0..1]
                 if (keepRemovedAsComments) {
-                    String old = css.substring(prev[0], prev[1]).replace("*/", "* /");
+                    String old = css.substring(prev[2], prev[3]).replace("*/", "* /");
                     String ins = "/* ssvul-css-dedup: removed (overridden by later same selector)\n" + old + "\n*/\n";
-                    // 前驱已是输出区间——重建：标记为待替换更稳妥，这里直接替换区间内容
                     out.replace(prev[0], prev[1], ins);
-                    int shift = ins.length() - (prev[1] - prev[0]);
-                    adjust(last, prev[1], shift);
+                    adjust(last, prev[1], ins.length() - (prev[1] - prev[0]));
                 } else {
                     out.replace(prev[0], prev[1], "");
-                    int shift = -(prev[1] - prev[0]);
-                    adjust(last, prev[1], shift);
+                    adjust(last, prev[1], -(prev[1] - prev[0]));
                 }
             }
             int start = out.length();
             out.append(css, s.start, s.end);
-            last.put(sel, new int[]{start, out.length()});
+            last.put(sel, new int[]{start, out.length(), s.start, s.end});
         }
         return out.toString();
     }
@@ -109,10 +111,27 @@ public final class CssDeduper {
         return out;
     }
 
+    /** at-rule 段边界：带块（@media/@keyframes…）到配对 `}`；无块（@import/@charset/@layer a,b;）到 `;`。
+     *  扫描**跳过注释与引号**——否则 `@import url("a;b.css");` 里引号内的 `;` 会被误判成段边界
+     *  （引号内的 `{`/`}` 同理）。谁先出现用谁：块 at-rule 的条件区里不会出现裸 `;`。 */
     private static int blockEnd(String css, int from, int n) {
-        int open = css.indexOf('{', from);
-        if (open < 0) return n;
-        return blockEndFromOpen(css, open, n);
+        for (int p = from; p < n; p++) {
+            char c = css.charAt(p);
+            if (c == '/' && p + 1 < n && css.charAt(p + 1) == '*') {
+                int j = css.indexOf("*/", p + 2);
+                p = j < 0 ? n - 1 : j + 1;
+                continue;
+            }
+            if (c == '"' || c == '\'') {
+                int j = p + 1;
+                while (j < n && css.charAt(j) != c) { if (css.charAt(j) == '\\' && j + 1 < n) j++; j++; }
+                p = j;
+                continue;
+            }
+            if (c == ';') return p + 1;
+            if (c == '{') return blockEndFromOpen(css, p, n);
+        }
+        return n;
     }
 
     private static int blockEndFromOpen(String css, int open, int n) {

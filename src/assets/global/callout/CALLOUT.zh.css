@@ -1,0 +1,45 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+/* ============================================================================
+   中文标签变体模板（**永不自动注入**）——复制为 sets/global/callout/CALLOUT.zh.css 后生效。
+
+   用途：① 主语言非中文的站点，为 lang 命中 zh / zh-CN 的页面提供中文标签；
+        ② 中文站想改措辞时的起点。
+   注意：内置 16 类型的默认标签**本来就是中文**（注意/提示/重要/警告/小心/信息/成功/疑问/示例/引用/摘要/待办/危险/失败/缺陷/调试），
+        所以纯中文站通常**不需要**本文件。
+   命中规则：页面 lang=zh-CN → 先找 CALLOUT.zh-CN.css；没有则找 CALLOUT.zh.css（本文件）；
+        命中变体后**只注入变体**，要叠加 CALLOUT.css 请加 @import url("CALLOUT.css");
+   扩展类型（如 release）没有默认中文标签，请在此一并补上。
+   ============================================================================ */
+
+.md-body blockquote.md-callout-note      .md-callout-label { display: none; }
+.md-body blockquote.md-callout-note      .md-callout-title-default::after { content: "注意"; }
+.md-body blockquote.md-callout-tip       .md-callout-label { display: none; }
+.md-body blockquote.md-callout-tip       .md-callout-title-default::after { content: "提示"; }
+.md-body blockquote.md-callout-important .md-callout-label { display: none; }
+.md-body blockquote.md-callout-important .md-callout-title-default::after { content: "重要"; }
+.md-body blockquote.md-callout-warning   .md-callout-label { display: none; }
+.md-body blockquote.md-callout-warning   .md-callout-title-default::after { content: "警告"; }
+.md-body blockquote.md-callout-caution   .md-callout-label { display: none; }
+.md-body blockquote.md-callout-caution   .md-callout-title-default::after { content: "小心"; }
+.md-body blockquote.md-callout-info      .md-callout-label { display: none; }
+.md-body blockquote.md-callout-info      .md-callout-title-default::after { content: "信息"; }
+.md-body blockquote.md-callout-success   .md-callout-label { display: none; }
+.md-body blockquote.md-callout-success   .md-callout-title-default::after { content: "成功"; }
+.md-body blockquote.md-callout-question  .md-callout-label { display: none; }
+.md-body blockquote.md-callout-question  .md-callout-title-default::after { content: "疑问"; }
+.md-body blockquote.md-callout-example   .md-callout-label { display: none; }
+.md-body blockquote.md-callout-example   .md-callout-title-default::after { content: "示例"; }
+.md-body blockquote.md-callout-quote     .md-callout-label { display: none; }
+.md-body blockquote.md-callout-quote     .md-callout-title-default::after { content: "引用"; }
+.md-body blockquote.md-callout-abstract  .md-callout-label { display: none; }
+.md-body blockquote.md-callout-abstract  .md-callout-title-default::after { content: "摘要"; }
+.md-body blockquote.md-callout-todo      .md-callout-label { display: none; }
+.md-body blockquote.md-callout-todo      .md-callout-title-default::after { content: "待办"; }
+.md-body blockquote.md-callout-danger    .md-callout-label { display: none; }
+.md-body blockquote.md-callout-danger    .md-callout-title-default::after { content: "危险"; }
+.md-body blockquote.md-callout-failure   .md-callout-label { display: none; }
+.md-body blockquote.md-callout-failure   .md-callout-title-default::after { content: "失败"; }
+.md-body blockquote.md-callout-bug       .md-callout-label { display: none; }
+.md-body blockquote.md-callout-bug       .md-callout-title-default::after { content: "缺陷"; }
+.md-body blockquote.md-callout-debug     .md-callout-label { display: none; }
+.md-body blockquote.md-callout-debug     .md-callout-title-default::after { content: "调试"; }

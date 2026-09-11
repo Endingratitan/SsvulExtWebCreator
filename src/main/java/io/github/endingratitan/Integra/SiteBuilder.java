@@ -63,6 +63,9 @@ public class SiteBuilder {
     List<String> engineAssets = List.of();                     // 本页要注入的引擎自动资源（性能门控后）
     final Map<String, File> codeuiFiles = new LinkedHashMap<>();  // sets/global/codeui 的站点级文件
     boolean codeuiCssExists, codeuiJsExists;                   // CODEUI.css/js 存在性（注入门控之一）
+    final Map<String, File> calloutFiles = new LinkedHashMap<>();    // sets/global/callout 覆写文件（文件名 → 源）
+    boolean hasCallout, injectCalloutCss;                            // 每页：callout 门控 + 是否注入覆写
+    String injectCalloutVariant;                                     // 每页：命中的语言变体文件名（null → 用 CALLOUT.css）
     boolean hasCode, copyJsNeeded, injectCodeuiCss, injectCodeuiJs;   // 每页：hasCode 门控 + 注入标记
     final Set<String> pageGlobalRefs = new LinkedHashSet<>();        // 每页 global: 引用（父子双引用警告）
     final List<Map<String, String>> pageIndex = new ArrayList<>();  // 页面索引（search/shower 数据源）：link/title/date/excerpt/text/tags
@@ -382,6 +385,22 @@ public class SiteBuilder {
 
     /** 构建警告（控制台输出，不阻断） */
     void warn(String msg) { warnings.add(msg); }
+
+    /** 按页面 lang 选 callout 覆写文件：语言变体（完整 lang → 主语言）优先，未命中回落 CALLOUT.css（存在即注入）。
+     *  变体是**自包含**的：命中变体就不再注入 CALLOUT.css（想叠加就在变体里 @import url("CALLOUT.css")）。 */
+    void resolveCalloutFiles(String pageLang) {
+        injectCalloutCss = false;
+        injectCalloutVariant = null;
+        if (!hasCallout || calloutFiles.isEmpty()) return;   // 门控：本页没有 callout 就一个字节都不注入
+        String lang = pageLang == null ? "" : pageLang.trim().toLowerCase(Locale.ROOT);
+        String primary = lang.contains("-") ? lang.substring(0, lang.indexOf('-')) : lang;
+        for (String cand : new String[]{lang, primary}) {
+            if (cand.isEmpty()) continue;
+            File hit = calloutFiles.get("callout." + cand + ".css");
+            if (hit != null) { injectCalloutVariant = hit.getName(); injectCalloutCss = true; return; }
+        }
+        if (calloutFiles.containsKey("callout.css")) injectCalloutCss = true;
+    }
 
     /** 生成物 js 后缀：去重/压缩档（≥1）→ .min.js；0/-1 → .js */
     String jsSuffix() { return minifyLevel >= 1 ? ".min.js" : ".js"; }

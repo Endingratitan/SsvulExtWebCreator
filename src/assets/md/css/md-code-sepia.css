@@ -25,3 +25,5 @@
 [data-theme="sepia"] .md-body .md-code-inline { background: #efe5cd; }
 [data-theme="sepia"] .md-code-block { border-color: #d8cba8; }
 [data-theme="sepia"] .md-code-copy { border-color: #c8b890; background: rgba(255,255,255,.7); color: #4a4035; }
+/* callout：纸色下用暖白底 + 墨棕文字 */
+[data-theme="sepia"] .md-body blockquote.md-callout { --md-callout-bg: #f6efdf; --md-callout-fg: #4a4035; }

@@ -59,7 +59,11 @@ window.SsvulDiv.register('家族名', {
 
 ## 5. css 编写约定
 
-- 串联即级联：子 div 的 css 排在父后面 → **同选择器子覆盖父**（构建期 CssDeduper 会自动清除被完全覆盖的同名规则）。
+- 串联即级联：子 div 的 css 排在父后面 → **同选择器后到即胜**：构建期 CssDeduper 会把**前一条同选择器规则整块删除**。这是省流量的**既定特性，不是等价变换**。
+  - 因此子 div 若用与父相同的选择器，**必须把需要的声明全部重写**：父规则里没被覆盖的属性会一起消失。
+    例：父 `.ssvul-card{color:red;margin:0}` + 子 `.ssvul-card{color:blue}` → 产物只剩 `.ssvul-card{color:blue}`，`margin` 丢失。
+  - 想保留父的其余声明：换一个选择器（如 `.ssvul-child`），或把要用的声明写全。
+  - at-rule 例外：`@media`/`@keyframes` 等**带块** at-rule 整块保守跳过（不参与去重）；`@import`/`@charset`/`@layer a,b;` 等**无块** at-rule 以 `;` 为界。
 - 选择器建议以 `.ssvul-<div名>` 开头（外层包装类），避免全局污染。
 - 明暗主题：`[data-theme="dark"] .ssvul-xxx { … }`；能用变量就用 `--xxx`（自定义变量在 `:root` 与暗色块各声明一份）。
 - 颜色体系建议复用 `--md-code-*`（代码 token）与自定义 `--xxx-*`。
@@ -123,5 +127,5 @@ window.SsvulDiv.register('bar', {
 ## 10. 构建期自动优化（无需你操心）
 
 - 聚合去重：共享祖先的 js/css 只输出一份（origin 记账）；
-- 覆写消冗余：同名函数声明父实现自动清除；var 语句紧邻恒等去重；CSS 同选择器去重；
+- 覆写消冗余：同名函数声明父实现自动清除；var 语句紧邻恒等去重；CSS 同选择器**后到即胜（前驱整块删除，父的未覆盖声明会一并丢失，见 §5）**；
 - 压缩：minify 档位 2（默认）全量压缩；-1 保留被删代码注释供调试对比（Environment.config `minify`）。

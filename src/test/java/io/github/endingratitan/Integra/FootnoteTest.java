@@ -26,6 +26,17 @@ public class FootnoteTest {
     }
 
     @Test
+    void oversizedFootnoteNumberErrors() {
+        // R8：超长编号曾裸抛 NumberFormatException（定义侧与引用侧各一处 parseInt）
+        RuntimeException def = assertThrows(RuntimeException.class, () ->
+                MarkdownRenderer.render("正文[^1]\n\n[^99999999999999999999]: 注\n", "t"));
+        assertTrue(def.getMessage().contains("脚注编号过大"), def.getMessage());
+        RuntimeException ref = assertThrows(RuntimeException.class, () ->
+                MarkdownRenderer.render("正文[^99999999999999999999]\n", "t"));
+        assertTrue(ref.getMessage().contains("脚注编号过大"), ref.getMessage());
+    }
+
+    @Test
     void autoAndLazyPairing() {
         // [^.] 自动编号（空位补全：1 被占用 → 2、3）；[.^] 懒惰定义按顺序配给
         String html = MarkdownRenderer.render("a[^1]b[^.]c[^.]\n\n[^1]: 一\n[.^]: 懒一\n[.^]: 懒二\n");

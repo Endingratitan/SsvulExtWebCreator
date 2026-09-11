@@ -1,0 +1,8 @@
+/* SsvulExtWebCreator 示例站 · callout 中文语言变体（页面 lang=zh-CN 命中后**只注入本文件**）
+   首行 @import 把基础覆写拉进来（这就是"变体叠加基础"的推荐写法，也顺带验证 @import 后面的规则照常参与优化）。 */
+@import url("CALLOUT.css");
+
+/* 语言变体演示：把 tip 的默认标签「提示」改成「小技巧」
+   （默认标签包在 .md-callout-label 里：隐藏该层，再用 .md-callout-title-default::after 注入文字；不要用 font-size:0——会把 em 尺寸的图标一起缩掉） */
+.md-body blockquote.md-callout-tip .md-callout-label { display: none; }
+.md-body blockquote.md-callout-tip .md-callout-title-default::after { content: "小技巧"; }

@@ -129,11 +129,13 @@ class SitePages {
         Set<String> pageTypes = new LinkedHashSet<>();
         boolean[] hasMd = {false};
         boolean[] hasCode = {false};
+        boolean[] hasCallout = {false};
         sb.hasCode = false;
+        sb.hasCallout = false;
         sb.copyJsNeeded = false;
         sb.injectCodeuiCss = false;
         sb.injectCodeuiJs = false;
-        String content = renderDivGroup("", root.path("page"), "页面 " + name, pageTypes, hasMd, hasCode, sb.mdOptions);
+        String content = renderDivGroup("", root.path("page"), "页面 " + name, pageTypes, hasMd, hasCode, hasCallout, sb.mdOptions);
         // 性能门控：本页确有块落到带客户端资源的成员（如 hljs）才注入引擎资源
         if (sb.engineChain.clientAssetsNeeded()) sb.engineAssets = sb.engineChain.autoAssets();
         // CODEUI 注入门控：站点级文件存在 + 本页有代码块；copy-btn 项触发内置复制脚本
@@ -141,6 +143,9 @@ class SitePages {
         sb.injectCodeuiCss = sb.codeuiCssExists && hasCode[0];
         sb.injectCodeuiJs = sb.codeuiJsExists && hasCode[0];
         sb.copyJsNeeded = hasCode[0] && codeUiItems.contains("copy-btn");
+        // callout 门控：本页出现 callout 才注入 md-callout.css + 站点级覆写（语言变体按本页 lang 命中，未命中回落 CALLOUT.css）
+        sb.hasCallout = hasCallout[0];
+        sb.resolveCalloutFiles(root.path("lang").asText("zh-CN"));
 
         // 页面级 js/css：origin 去重 + 项级去重 + runtime（聚合助手）
         List<SiteScan.DivInfo> pageDivs = new ArrayList<>();
@@ -195,6 +200,7 @@ class SitePages {
         sb.engineAssets = List.of();
         MarkdownRenderer.setCodeEngine(sb.engineChain);
         sb.hasCode = false;
+        sb.hasCallout = false;
         sb.copyJsNeeded = false;
         sb.injectCodeuiCss = false;
         sb.injectCodeuiJs = false;
@@ -206,6 +212,7 @@ class SitePages {
             MarkdownRenderer.MdResult mr = MarkdownRenderer.renderParts(sb.readFile(p.file),
                     "pages/" + p.rel + p.name + ".md", Collections.emptyMap());
             content = MarkdownRenderer.joinResult(mr);
+            sb.hasCallout = mr.hasCallout();
             if (mr.hasCode()) {   // 裸页有代码块时同样注入站点级 CODEUI
                 sb.hasCode = true;
                 sb.injectCodeuiCss = sb.codeuiCssExists;
@@ -217,8 +224,11 @@ class SitePages {
         }
         String base = sb.readPreset("page/BASE.html");
         sb.refPreset("md/css/md.css");
+        sb.resolveCalloutFiles("zh-CN");   // 裸 md 页无 json，lang 与 BASE 模板一致取默认 zh-CN
         String links = "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth) + "assets/pre/md/css/md.css\">\n"
-                + "{{WEBGLOBAL_CSS:" + depth + "}}";
+                + tags.calloutBaseLink(depth)
+                + "{{WEBGLOBAL_CSS:" + depth + "}}"
+                + tags.calloutOverrideLink(depth);
         String scripts = "{{WEBGLOBAL_JS:" + depth + "}}";
         base = base.replace("{{lang}}", "zh-CN")
                    .replace("{{htmlattrs}}", "")
@@ -236,7 +246,7 @@ class SitePages {
     // ---- div 渲染 ----
 
     private String renderDivGroup(String parentId, JsonNode group, String pageSrc,
-                                  Set<String> pageTypes, boolean[] hasMd, boolean[] hasCode,
+                                  Set<String> pageTypes, boolean[] hasMd, boolean[] hasCode, boolean[] hasCallout,
                                   Map<String, String> inheritedMd) {
         if (group == null || !group.isObject()) return "";
         List<Map.Entry<String, JsonNode>> list = new ArrayList<>();
@@ -245,12 +255,12 @@ class SitePages {
         list.sort(Comparator.comparingInt(e -> Integer.parseInt(e.getKey().substring("div-".length()))));
         StringBuilder sb2 = new StringBuilder();
         for (Map.Entry<String, JsonNode> e : list)
-            sb2.append(renderDiv(parentId, e.getKey(), e.getValue(), pageSrc, pageTypes, hasMd, hasCode, inheritedMd));
+            sb2.append(renderDiv(parentId, e.getKey(), e.getValue(), pageSrc, pageTypes, hasMd, hasCode, hasCallout, inheritedMd));
         return sb2.toString();
     }
 
     private String renderDiv(String parentId, String key, JsonNode div, String pageSrc,
-                             Set<String> pageTypes, boolean[] hasMd, boolean[] hasCode,
+                             Set<String> pageTypes, boolean[] hasMd, boolean[] hasCode, boolean[] hasCallout,
                              Map<String, String> inheritedMd) {
         String id = parentId.isEmpty() ? key : parentId + "-" + key.substring("div-".length());
         String type = div.path("type").asText();
@@ -310,6 +320,7 @@ class SitePages {
             hasMd[0] = true;
             MarkdownRenderer.MdResult mr = resolveMd(div.get("markdown").asText(), pageSrc, mdOpts, id + "-");
             if (mr.hasCode()) hasCode[0] = true;
+            if (mr.hasCallout()) hasCallout[0] = true;
             if (hasTemplate) {
                 content = mr.mdBody();
                 footnotes = mr.footnotes();   // 模板含 {{footnotes}} 时注入该处
@@ -317,7 +328,7 @@ class SitePages {
                 content = MarkdownRenderer.joinResult(mr);   // 无模板：脚注区并入 md-body 末尾
             }
         }
-        String children = renderDivGroup(id, div.get("divs"), pageSrc, pageTypes, hasMd, hasCode, mdOpts);
+        String children = renderDivGroup(id, div.get("divs"), pageSrc, pageTypes, hasMd, hasCode, hasCallout, mdOpts);
 
         if (hasTemplate) {
             String t = sb.readFile(info.template);
@@ -473,7 +484,15 @@ class SitePages {
         data.put("id", id);
         data.put("total", total);
         data.put("manual", manual);
-        data.put("params", Map.of("dir", dir, "pattern", pattern, "count", count, "order", order, "fields", fields));
+        // 键序必须固定：Map.of 的迭代顺序随 JVM（ImmutableCollections SALT）变 → 同源构建字节不同，
+        // 会让 ⑧ 的内嵌哈希/immutable 缓存/build-manifest 失去意义
+        Map<String, Object> paramsOut = new LinkedHashMap<>();
+        paramsOut.put("dir", dir);
+        paramsOut.put("pattern", pattern);
+        paramsOut.put("count", count);
+        paramsOut.put("order", order);
+        paramsOut.put("fields", fields);
+        data.put("params", paramsOut);
         data.put("entries", entries);
         try {
             return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(data);

@@ -29,6 +29,44 @@ public class SiteBuilderTest {
     }
 
     @Test
+    void calloutCssGatedInjection() throws Exception {
+        // ④a 门控：有 callout 的页面注入 md-callout.css + 站点级覆写（lang 命中变体则只注入变体）；
+        // 没有 callout 的页面零注入（与 codeui 的 hasCode 同构）
+        File sets = tmp.resolve("sets").toFile();
+        File out = tmp.resolve("output").toFile();
+        write(new File(sets, "Environment.config"), "cname=example.com\n");
+        write(new File(sets, "divs/t/template.html"), "<div>{{content}}</div>");
+        write(new File(sets, "pages/with.json"),
+                "{\"name\":\"with\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"> [!note]\\n> 有 callout\\n\"}}}");
+        write(new File(sets, "pages/without.json"),
+                "{\"name\":\"without\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"普通文本\\n\"}}}");
+        write(new File(sets, "global/callout/CALLOUT.css"), ".md-body blockquote.md-callout-note{--md-callout-note-bg:#fff8e1;}");
+        write(new File(sets, "global/callout/CALLOUT.zh.css"), ".md-body blockquote.md-callout-note .md-callout-title{font-size:0;}");
+
+        SiteBuilder.build(sets, out, new File("src/assets"));
+
+        String with = Files.readString(new File(out, "pages/with/index.html").toPath());
+        String without = Files.readString(new File(out, "pages/without/index.html").toPath());
+        assertTrue(with.contains("assets/pre/md/css/md-callout.css"), with);
+        assertTrue(with.contains("assets/global/callout/CALLOUT.zh.css"), with);   // 页面 lang 默认 zh-CN → 命中 zh 变体
+        assertFalse(with.contains("assets/global/callout/CALLOUT.css\""), with);   // 变体自包含：不再注入基础覆写
+        assertFalse(without.contains("md-callout.css"), without);                  // 无 callout → 零注入
+        assertTrue(new File(out, "assets/global/callout/CALLOUT.zh.css").isFile());
+    }
+
+    @Test
+    void bareMdPageInjectsCalloutCss() throws Exception {
+        File sets = tmp.resolve("sets").toFile();
+        File out = tmp.resolve("output").toFile();
+        write(new File(sets, "Environment.config"), "cname=example.com\n");
+        write(new File(sets, "pages/note.md"), "# 标题\n\n> [!caution] 小心\n> 裸页 callout\n");
+        SiteBuilder.build(sets, out, new File("src/assets"));
+        String html = Files.readString(new File(out, "pages/note/index.html").toPath());
+        assertTrue(html.contains("md-callout-caution"), html);
+        assertTrue(html.contains("assets/pre/md/css/md-callout.css"), html);
+    }
+
+    @Test
     void fullPipeline() throws Exception {
         File sets = tmp.resolve("sets").toFile();
         File out = tmp.resolve("output").toFile();

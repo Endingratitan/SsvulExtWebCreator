@@ -44,6 +44,9 @@ public class MarkdownRenderer {
     boolean tocOn;                             // md-options.toc：构建期生成目录
     boolean quoteFlattenWarned;                // 引用压平警告只报一次（simple 模式）
     boolean hadCode;                           // 本次渲染是否出现围栏代码块（code-ui 注入门控）
+    boolean hadCallout;                        // 本次渲染是否出现 callout（md-callout.css / CALLOUT css 注入门控）
+    boolean calloutTitleOn = true;             // md-options.callout-title：default|none（none=不注入默认标签）
+    final Set<String> calloutWarned = new HashSet<>();   // 非内置 callout 类型警告只报一次
     List<String> codeUiItems = List.of();      // code-ui.items：块内元素（顺序=DOM 顺序）
     String codeUiBg;                           // code-ui.bg：块背景图（null=无）
     boolean codeUiRounded;                     // code-ui.rounded：圆角类
@@ -88,6 +91,7 @@ public class MarkdownRenderer {
         r.codeUiBg = options.get("codeui.bg");
         r.codeUiRounded = "true".equalsIgnoreCase(options.getOrDefault("codeui.rounded", "false"));
         r.codeUiLabelPos = options.getOrDefault("codeui.label-pos", "tr");
+        r.calloutTitleOn = !"none".equalsIgnoreCase(options.getOrDefault("callout-title", "default"));
         MdResult res = r.runParts(md == null ? "" : md, options);
         if (!r.errors.isEmpty()) {
             StringBuilder sb = new StringBuilder();
@@ -99,9 +103,11 @@ public class MarkdownRenderer {
         return res;
     }
 
-    /** 渲染结果：mdBody 不含脚注区（脚注区单独返回，供 {{footnotes}} 占位符或文末注入）；hasCode=是否出现围栏代码块 */
-    public record MdResult(String mdBody, String footnotes, boolean hasCode) {
-        public MdResult(String mdBody, String footnotes) { this(mdBody, footnotes, false); }
+    /** 渲染结果：mdBody 不含脚注区（脚注区单独返回，供 {{footnotes}} 占位符或文末注入）；
+     *  hasCode=是否出现围栏代码块；hasCallout=是否出现 callout（各自决定对应 CSS 的按需注入） */
+    public record MdResult(String mdBody, String footnotes, boolean hasCode, boolean hasCallout) {
+        public MdResult(String mdBody, String footnotes) { this(mdBody, footnotes, false, false); }
+        public MdResult(String mdBody, String footnotes, boolean hasCode) { this(mdBody, footnotes, hasCode, false); }
     }
 
     /** 把脚注区插回 md-body 末尾（无脚注时原样返回） */
@@ -119,6 +125,15 @@ public class MarkdownRenderer {
         List<String> lines = new ArrayList<>(Arrays.asList(md.split("\n", -1)));
         srcLines = lines;
 
+        // 掩码保留字符：源文出现裸 NUL 会让脚注占位符 \u0000FN<seq>\u0000 可被伪造（曾崩 IndexOutOfBounds）→ 收集式报错
+        int nulAt = md.indexOf('\u0000');
+        if (nulAt >= 0) {
+            int lineNo = 1;
+            for (int k = 0; k < nulAt; k++) if (md.charAt(k) == '\n') lineNo++;
+            error(lineNo, "源文含非法控制字符 U+0000（md 脚注掩码保留字符）", "删除该字符后重试", lines.get(lineNo - 1));
+            return new MdResult("", "");
+        }
+
         MdFootnotes fn = new MdFootnotes(this);
         fn.inlineFn = "inline".equals(options.getOrDefault("footnote-display", "end"));
         this.inl = new MdInline(this, fn);
@@ -132,7 +147,7 @@ public class MarkdownRenderer {
         if (tocOn && !tocItems.isEmpty()) content.insert(0, buildToc());   // 目录置于 md-body 顶部
         for (String w : warnings) IO.println("[md 警告] " + w);
         String mdBody = "<div class=\"md-body\">\n" + content + "</div>\n";
-        return new MdResult(mdBody, footnotes, hadCode);
+        return new MdResult(mdBody, footnotes, hadCode, hadCallout);
     }
 
     /** 块级解析器回调：记录入目录的标题（h2 起） */

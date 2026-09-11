@@ -82,7 +82,8 @@ public final class JsDeduper {
                 while (q < toks.size() && toks.get(q).type() == Lex.NL) q++;
                 if (q >= toks.size() || toks.get(q).type() != Lex.PUNCT || !toks.get(q).text().equals("(")) continue;
                 int bodyOpen = braceOpenAfterParens(toks, q);
-                int end = bodyOpen < 0 ? toks.get(k).end() : matchBrace(toks, bodyOpen);
+                if (bodyOpen < 0) continue;   // 定位不到函数体：整条不参与消冗余（宁可不删，也不能只删 function 关键字留残句）
+                int end = matchBrace(toks, bodyOpen);
                 int[] range = {toks.get(k).start(), end};
                 List<int[]> prevs = fnDecls.get(name);
                 if (prevs != null) { removed.addAll(prevs); prevs.clear(); notes.add("函数声明后到胜: " + name); }
@@ -120,15 +121,23 @@ public final class JsDeduper {
         return null;
     }
 
-    /** 从 ( 位置找到函数体 { （跳过参数区，含默认值内的 { }） */
+    /** 从 ( 位置找到函数体 {：**只按圆括号配对**定位参数区结束（解构参数 {a}/[b]、默认值里的括号都不影响），
+     *  再看其后第一个有效 token 是否为 `{`。曾把参数区的 `{` 也计入深度 → 解构参数永远返回 -1。 */
     private static int braceOpenAfterParens(List<Lex.Tok> toks, int parenIdx) {
         int depth = 0;
         for (int p = parenIdx; p < toks.size(); p++) {
             Lex.Tok t = toks.get(p);
             if (t.type() != Lex.PUNCT) continue;
             if (t.text().equals("(")) depth++;
-            else if (t.text().equals(")")) { if (--depth == 0) { for (int q = p + 1; q < toks.size(); q++) { if (toks.get(q).type() == Lex.NL || toks.get(q).type() == Lex.COMMENT) continue; return toks.get(q).type() == Lex.PUNCT && toks.get(q).text().equals("{") ? q : -1; } } }
-            else if (t.text().equals("{")) depth++;
+            else if (t.text().equals(")")) {
+                if (--depth == 0) {
+                    for (int q = p + 1; q < toks.size(); q++) {
+                        if (toks.get(q).type() == Lex.NL || toks.get(q).type() == Lex.COMMENT) continue;
+                        return toks.get(q).type() == Lex.PUNCT && toks.get(q).text().equals("{") ? q : -1;
+                    }
+                    return -1;
+                }
+            }
         }
         return -1;
     }

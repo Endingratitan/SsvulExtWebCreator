@@ -9,12 +9,17 @@
 package io.github.endingratitan.Integra;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 块级解析器（包内私有）：段落/标题/围栏/引用/列表（子视图递归，围栏与表格逃逸）/表格/数学块/分隔线。
  * owner 为 MarkdownRenderer（共享模式/错误/行内），fn 为脚注子系统（定义行掩码与就地占位）。
  */
 class MdBlocks {
+
+    /** callout 标记：引用首行 `[!TYPE]` + 可选标题（标题走行内解析） */
+    private static final Pattern CALLOUT = Pattern.compile("^\\[!([A-Za-z][A-Za-z0-9-]*)\\]\\s*(.*)$");
 
     private final MarkdownRenderer owner;
     private final MdFootnotes fn;
@@ -217,7 +222,9 @@ class MdBlocks {
             if (l.trim().isEmpty()) {
                 int j = i;
                 while (j < end && lines.get(j).trim().isEmpty()) j++;
-                if (j < end && MarkdownRenderer.stripIndent(lines.get(j)).startsWith(">")) { sub.add(""); i = j; continue; }
+                // 空行后仍是 `>` 通常继续同一引用；但下一段以 callout 标记开头时断成两块（否则第二个 callout 会被吞成字面文本）
+                if (j < end && MarkdownRenderer.stripIndent(lines.get(j)).startsWith(">")
+                        && !startsCallout(MarkdownRenderer.stripIndent(lines.get(j)))) { sub.add(""); i = j; continue; }
                 break;
             }
             String t = MarkdownRenderer.stripIndent(l);
@@ -231,10 +238,64 @@ class MdBlocks {
             sub.add(t);
             i++;
         }
-        out.append("<blockquote>\n");
+        // callout：只看引用首个非空行（`[!TYPE] 可选标题`；转义 \[!TYPE\] 首字符是 \ 天然不匹配）
+        boolean isCallout = false;
+        String calloutType = null, calloutTitle = null;
+        int markerLine = base + start + 1;
+        if (!sub.isEmpty()) {
+            Matcher m = CALLOUT.matcher(sub.get(0));
+            if (m.matches()) {
+                String t2 = m.group(1).toLowerCase(Locale.ROOT);
+                if (Callouts.kebab(t2)) {
+                    isCallout = true;
+                    calloutType = t2;
+                    String rest = m.group(2).trim();
+                    calloutTitle = rest.isEmpty() ? null : rest;
+                    sub.remove(0);   // 标记行不进正文
+                    if (!Callouts.known(t2) && owner.calloutWarned.add(t2)) {
+                        owner.warn(markerLine, "非内置 callout 类型 " + t2
+                                + "（已按扩展类型渲染；可在 sets/global/callout/CALLOUT.css 提供样式）");
+                    }
+                    if (sub.isEmpty()) owner.warn(markerLine, "callout 无内容: [" + t2 + "]");
+                }
+            }
+        }
+        if (isCallout) {
+            owner.hadCallout = true;
+            out.append("<blockquote class=\"md-callout md-callout-").append(calloutType)
+               .append("\" data-callout=\"").append(calloutType).append("\">\n");
+            String text = calloutTitle != null ? calloutTitle
+                    : (owner.calloutTitleOn ? Callouts.label(calloutType) : null);   // callout-title=none 时不注入默认标签
+            if (text != null && !text.isEmpty()) {
+                // 默认标签：包一层 .md-callout-label + 标题加 .md-callout-title-default
+                // （换语言规则只作用于 default 类 → 作者自定义标题不会被 ::after 追加第二段文字；视觉验收抓出来的）
+                boolean isDefault = calloutTitle == null;
+                out.append("<p class=\"md-callout-title");
+                if (isDefault) out.append(" md-callout-title-default");
+                out.append("\">");
+                if (isDefault) {
+                    out.append("<span class=\"md-callout-label\">")
+                       .append(MarkdownRenderer.esc(text)).append("</span>");
+                } else {
+                    out.append(owner.inline(text, markerLine, 0));
+                }
+                out.append("</p>\n");
+            }
+        } else {
+            out.append("<blockquote>\n");
+        }
         renderBlocks(out, sub, listDepth, flatten ? quoteDepth : quoteDepth + 1, base + start);
         out.append("</blockquote>\n");
         return i;
+    }
+
+    /** 引用行（已剥缩进，形如 `> [!type]`）是否以 callout 标记开头——用于空行断块判定 */
+    private static boolean startsCallout(String rawLine) {
+        if (!rawLine.startsWith(">")) return false;
+        String t = rawLine.substring(1);
+        if (t.startsWith(" ")) t = t.substring(1);
+        Matcher m = CALLOUT.matcher(t);
+        return m.matches() && Callouts.kebab(m.group(1).toLowerCase(Locale.ROOT));
     }
 
     private int renderList(StringBuilder out, List<String> lines, int i, int end,

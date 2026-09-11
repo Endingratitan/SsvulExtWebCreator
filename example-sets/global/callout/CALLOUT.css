@@ -1,0 +1,13 @@
+/* SsvulExtWebCreator 示例站 · callout 站点级覆写（存在即注入 + hasCallout 门控）
+   本示例站只有 pages/callout-demo.json 出现 callout，所以这两份文件只影响那一页。 */
+
+/* ① 给扩展类型 release 上样式：直接复用内置 success 的变量（CSS 版"继承"） */
+.md-body blockquote.md-callout-release {
+  --md-callout-bg: var(--md-callout-success-bg);
+  --md-callout-border: var(--md-callout-success-border);
+  --md-callout-fg: var(--md-callout-success-fg);
+  --md-callout-icon: var(--md-callout-icon-check);
+}
+
+/* ② 覆写内置类型配色：同选择器后到即胜（md-callout.css → 本文件） */
+.md-body blockquote.md-callout-note { --md-callout-note-bg: #e8f1ff; --md-callout-note-border: #2f6fe0; }

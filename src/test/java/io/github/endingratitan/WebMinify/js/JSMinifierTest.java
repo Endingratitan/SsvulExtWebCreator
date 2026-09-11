@@ -66,6 +66,19 @@ public class JSMinifierTest {
     }
 
     @Test
+    void memberNamesNeverRenamed() {
+        // R2：`?.` 是单个 token、成员简写/getter 名不在排除集 → 曾把 obj?.name 改成 obj?.a、{name(){}} 改成 {a(){}}
+        String o1 = min("function f(obj, name) { return obj?.name; }");
+        assertTrue(o1.contains("?.name"), o1);
+        String o2 = min("function f(name) { return { name() { return 1; } }; }");
+        assertTrue(o2.contains("name()"), o2);
+        String o3 = min("function f(name) { return { get name() { return 1; } }; }");
+        assertTrue(o3.contains("get name()"), o3);
+        // 对照：纯局部参数照旧改名（保住省流量收益）
+        assertFalse(min("function f(count) { return count + 1; }").contains("count"));
+    }
+
+    @Test
     void topLevelVarIsGlobalSurfaceKept() {
         // 深度 0 的 var 可能被其它聚合脚本引用 → 不碰
         String out = min("var shared = 1;\nfunction f() { var local = shared; return local; }");

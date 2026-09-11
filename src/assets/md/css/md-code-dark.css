@@ -30,3 +30,5 @@
 [data-theme="dark"] .md-body .md-code-inline { background: #282f3f; }
 [data-theme="dark"] .md-toc { border-left-color: #5a6b8c; }
 [data-theme="dark"] .md-toc a:hover { color: #7ab8ff; }
+/* callout：暗色下统一中性深底（类型色保留在左边框与图标），避免浅色块刺眼 */
+[data-theme="dark"] .md-body blockquote.md-callout { --md-callout-bg: #1e2430; --md-callout-fg: #d6dce6; }

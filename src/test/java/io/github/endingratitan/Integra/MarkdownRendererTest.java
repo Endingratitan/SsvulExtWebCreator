@@ -99,6 +99,87 @@ public class MarkdownRendererTest {
     }
 
     @Test
+    void nulControlCharCollectedAsError() {
+        // R7：源文裸 NUL 可伪造脚注掩码 \u0000FN<seq>\u0000 → 曾裸崩 IndexOutOfBounds；现收集式报错
+        RuntimeException e = assertThrows(RuntimeException.class, () ->
+                MarkdownRenderer.render("正文 \u0000FN0\u0000 结束\n", "t"));
+        assertTrue(e.getMessage().contains("非法控制字符"), e.getMessage());
+        assertTrue(e.getMessage().contains("第 1 行"), e.getMessage());
+    }
+
+    // ==================== callout（④a） ====================
+
+    @Test
+    void calloutDefaultLabelsAndClasses() {
+        String html = MarkdownRenderer.render("> [!note]\n> 正文\n");
+        assertTrue(html.contains("<blockquote class=\"md-callout md-callout-note\" data-callout=\"note\">"), html);
+        assertTrue(html.contains("<p class=\"md-callout-title md-callout-title-default\"><span class=\"md-callout-label\">注意</span></p>"), html);
+        assertTrue(html.contains("正文"), html);
+        assertTrue(MarkdownRenderer.render("> [!WARNING]\n> x\n").contains(">警告</span>"), "类型名大小写不敏感");
+        assertTrue(MarkdownRenderer.render("> [!debug]\n> x\n").contains("md-callout-debug"), "DEBUG 类型在表内");
+    }
+
+    @Test
+    void calloutCustomTitleReplacesDefault() {
+        String html = MarkdownRenderer.render("> [!tip] **自定**标题\n> 正文\n");
+        assertTrue(html.contains("<p class=\"md-callout-title\"><strong>自定</strong>标题</p>"), html);
+        assertFalse(html.contains("提示"), html);              // 自定义标题替换默认标签
+        assertFalse(html.contains("md-callout-label"), html);  // 自定义标题不带 label 包裹层
+        assertFalse(html.contains("md-callout-title-default"), html);   // 也不带 -default 类（换语言规则不会追加文字）
+    }
+
+    @Test
+    void calloutTitleCanBeSuppressed() {
+        String html = MarkdownRenderer.render("> [!note]\n> 正文\n", "t", Map.of("callout-title", "none"));
+        assertFalse(html.contains("md-callout-title"), html);
+        assertTrue(html.contains("正文"), html);
+    }
+
+    @Test
+    void calloutExtendedTypeHumanized() {
+        // 非内置类型：类名保留 + 标题回落"类型名首字母大写"（逃生舱，配合 CALLOUT.css 自定样式）
+        String html = MarkdownRenderer.render("> [!release-note]\n> 正文\n");
+        assertTrue(html.contains("class=\"md-callout md-callout-release-note\" data-callout=\"release-note\""), html);
+        assertTrue(html.contains("<span class=\"md-callout-label\">Release Note</span>"), html);
+    }
+
+    @Test
+    void calloutInvalidMarkerStaysLiteral() {
+        String bad = MarkdownRenderer.render("> [!not a type]\n> 正文\n");
+        assertFalse(bad.contains("md-callout"), bad);
+        assertTrue(bad.contains("<blockquote>"), bad);
+        // 想写字面 "[!note]" 用行内代码：`\[!note]` 是 LaTeX 块数学定界符（v2 特性），不是转义
+        String code = MarkdownRenderer.render("> `[!note]`\n> 正文\n");
+        assertFalse(code.contains("md-callout"), code);
+    }
+
+    @Test
+    void calloutInsideListAndNestedQuote() {
+        String html = MarkdownRenderer.render("- 列表项\n  > [!tip]\n  > 项内提示\n");
+        assertTrue(html.contains("md-callout-tip"), html);
+        assertTrue(html.contains("项内提示"), html);
+        assertTrue(html.contains("<li>"), html);
+    }
+
+    @Test
+    void calloutFlagReportedForGating() {
+        assertTrue(MarkdownRenderer.renderParts("> [!note]\n> x\n", "t", Map.of()).hasCallout());
+        assertFalse(MarkdownRenderer.renderParts("普通段落\n", "t", Map.of()).hasCallout());
+        // 只有标记没有正文：仍渲染标题（构建期另有"callout 无内容"警告）
+        assertTrue(MarkdownRenderer.render("> [!caution]\n").contains("md-callout-caution"));
+    }
+
+    @Test
+    void adjacentCalloutsSplitIntoTwoBlocks() {
+        // 空行后仍是 `>` 一般继续同一引用；但下一段以 callout 标记开头时必须断块，否则第二个标记变字面文本
+        String html = MarkdownRenderer.render("> [!note]\n> 甲\n\n> [!warning]\n> 乙\n");
+        assertEquals(2, html.split("md-callout md-callout-", -1).length - 1, html);
+        assertTrue(html.contains("注意"), html);
+        assertTrue(html.contains("警告"), html);
+        assertFalse(html.contains("[!warning]"), html);
+    }
+
+    @Test
     void simpleModeLenient() {
         // --- 分隔线（GitHub 行为；v2 收尾后带 class）
         String dash = MarkdownRenderer.render("---\n", "t");

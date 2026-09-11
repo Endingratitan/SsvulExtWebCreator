@@ -95,6 +95,52 @@ public class WebMinifyDedupTest {
     }
 
     @Test
+    void functionDeclWithDestructuredParamsRemovedWhole() {
+        // R3：参数区含 {} 时曾定位不到函数体 → 兜底只删 `function` 关键字，留下 ` init({a}) {…}` 语法残句
+        String js = "function init({a}) { return a; }\nfunction init(b) { return b; }\n";
+        String out = JsDeduper.dedupItems(js, false).code();
+        assertFalse(out.contains("init({a})"), out);
+        assertFalse(out.contains("return a"), out);
+        assertTrue(out.contains("return b"), out);
+    }
+
+    @Test
+    void cssDedupKeepCommentsSurvivesMultipleCollisions() {
+        // R6：-1 档（keep）曾拿输出偏移去 substring 输入原文 → 第二次冲突就 StringIndexOutOfBounds
+        String css = ".a{color:red}\n.b{x:1}\n.a{color:blue}\n.a{color:green}\n";
+        String out = CssDeduper.dedup(css, true);
+        assertEquals(2, count(out, "ssvul-css-dedup: removed"), out);
+        assertTrue(out.contains(".a{color:red}"), out);      // 注释里回插的是被删原文，不是错位片段
+        assertTrue(out.contains(".a{color:blue}"), out);
+        assertTrue(out.contains(".a{color:green}"), out);
+    }
+
+    @Test
+    void cssBlocklessAtRuleDoesNotSwallowNextRule() {
+        // R9：无块 at-rule 曾把紧随其后的一条规则吞进 at-rule 段 → 该规则不参与去重
+        String css = "@import \"x.css\";\n.a{color:red;margin:0}\n.a{color:blue}\n";
+        String out = CssDeduper.dedup(css, false);
+        assertTrue(out.contains("@import \"x.css\";"), out);
+        assertEquals(1, count(out, ".a{"), out);             // 前驱被删（修复前两条都在）
+        assertFalse(out.contains("margin:0"), out);          // 后到胜：同名前驱整块删除=既定特性（见 div-guide §5）
+    }
+
+    @Test
+    void cssBlocklessAtRuleSkipsQuotedSemicolon() {
+        // R9 后续：blockEnd 曾用裸 indexOf(';') → 引号内的 ; 会截断 at-rule 段，使其后规则不参与去重
+        String css = "@import url(\"a;b.css\");\n.a{color:red;margin:0}\n.a{color:blue}\n";
+        String out = CssDeduper.dedup(css, false);
+        assertTrue(out.contains("@import url(\"a;b.css\");"), out);
+        assertEquals(1, count(out, ".a{"), out);
+    }
+
+    private static int count(String s, String sub) {
+        int n = 0;
+        for (int i = s.indexOf(sub); i >= 0; i = s.indexOf(sub, i + sub.length())) n++;
+        return n;
+    }
+
+    @Test
     void dedupFilesDropsIdenticalCopies() {
         List<String> files = List.of("function f() { return 1; }\n", "function f() { return 1; }\n", "var x = 2;\n");
         List<String> out = JsDeduper.dedupFiles(files);

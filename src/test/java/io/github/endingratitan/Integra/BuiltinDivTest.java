@@ -71,6 +71,20 @@ public class BuiltinDivTest {
     }
 
     @Test
+    void showerInlineParamsKeyOrderStable() throws Exception {
+        // R4：params 曾用 Map.of（迭代顺序随 JVM 的 ImmutableCollections SALT 变）→ 同源构建字节不同，
+        // 会让 v3-⑧ 的内嵌哈希/immutable 缓存/build-manifest 失效；现固定为契约顺序
+        File[] s = site("");
+        write(new File(s[0], "pages/INDEX.json"),
+                "{\"name\":\"INDEX\",\"page\":{\"div-1\":{\"type\":\"shower\",\"params\":" +
+                "{\"dir\":\"pages/blog\",\"pattern\":\"*.md\",\"count\":3,\"order\":\"date\",\"fields\":\"title,date,excerpt\"}}}}");
+        SiteBuilder.build(s[0], s[1], new File("src/assets"));
+        String html = Files.readString(new File(s[1], "index.html").toPath());
+        assertTrue(html.contains("\"params\":{\"dir\":\"pages/blog\",\"pattern\":\"*.md\",\"count\":3,"
+                + "\"order\":\"date\",\"fields\":\"title,date,excerpt\"}"), html);
+    }
+
+    @Test
     void showerRandomSeedReproducible() throws Exception {
         File[] s = site("");
         write(new File(s[0], "pages/INDEX.json"),

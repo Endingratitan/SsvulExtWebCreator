@@ -25,3 +25,5 @@
 [data-theme="green"] .md-body .md-code-inline { background: #162a16; }
 [data-theme="green"] .md-code-block { border-color: #1f3a1f; }
 [data-theme="green"] .md-code-copy { border-color: #2f4f2f; background: rgba(0,0,0,.5); color: #b8f5b0; }
+/* callout：终端绿下用近黑底 + 荧光绿文字 */
+[data-theme="green"] .md-body blockquote.md-callout { --md-callout-bg: #101c12; --md-callout-fg: #b8f5b0; }

@@ -56,6 +56,10 @@ class MdFootnotes {
             Matcher m = exp.matcher(t);
             String content = null;
             if (m.matches()) {
+                if (m.group(1).length() > 6) {   // 曾直接 parseInt → 裸 NumberFormatException（绕过收集式报错）
+                    owner.error(idx + 1, "脚注编号过大（最多 6 位）: [^" + m.group(1) + "]", "改用 1~999999 的编号", t);
+                    continue;
+                }
                 int num = Integer.parseInt(m.group(1));
                 content = m.group(2).trim();
                 if (num == 0) { owner.error(idx + 1, "脚注编号必须为正整数: [^0]", null, t); continue; }
@@ -79,8 +83,13 @@ class MdFootnotes {
         }
     }
 
-    /** 行内解析器回调：登记引用并埋占位符 */
+    /** 行内解析器回调：登记引用并埋占位符（超长编号与定义侧同护栏：按字面输出 + 报错，避免后续 parseInt 裸崩） */
     void registerRef(String label, int lineNo, StringBuilder out) {
+        if (!label.equals(".") && label.length() > 6) {
+            owner.error(lineNo, "脚注编号过大（最多 6 位）: [^" + label + "]", "改用 1~999999 的编号", label);
+            out.append("[^").append(label).append(']');
+            return;
+        }
         RefRec r = new RefRec(label, lineNo, refs.size());
         refs.add(r);
         out.append(FN_MARK).append(r.seq).append('\u0000');

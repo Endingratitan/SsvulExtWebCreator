@@ -76,7 +76,8 @@
       "properties": {
         "mode": { "type": "string", "enum": ["simple", "strict"], "description": "simple=GitHub 兼容（默认）；strict=严格报错" },
         "footnote-display": { "type": "string", "enum": ["end", "inline"], "description": "end=脚注统一放（文末或 {{footnotes}} 占位符，默认）；inline=就地显示在定义处" },
-        "toc": { "type": "boolean", "description": "构建期生成目录（md-body 顶部；h2~h6 入目录，h1 排除；默认 false）" }
+        "toc": { "type": "boolean", "description": "构建期生成目录（md-body 顶部；h2~h6 入目录，h1 排除；默认 false）" },
+        "callout-title": { "type": "string", "enum": ["default", "none"], "description": "callout（> [!TYPE]）标题：default=注入内置默认标签/扩展类型首字母大写（默认）；none=不出默认标题元素（作者自定义标题仍生效）" }
       }
     },
     "dep": {

@@ -351,6 +351,16 @@ class SiteScan {
                         sb.errors.add("sets/global/codeui 仅允许 CODEUI.css/CODEUI.js: " + n);
                     }
                 }
+            } else if (d.getName().equals("callout")) {
+                // callout 视觉/语言逃生舱：CALLOUT.css 与 CALLOUT.<lang>.css（lang 为占位符；存在即注入，hasCallout 门控）
+                for (File f : SiteBuilder.sortedFiles(d)) {
+                    String n = f.getName();
+                    if (n.equals("CALLOUT.css") || n.matches("CALLOUT\\.[A-Za-z0-9-]+\\.css")) {
+                        sb.calloutFiles.put(n.toLowerCase(Locale.ROOT), f);   // 键小写：lang 命中时不区分大小写
+                    } else {
+                        sb.errors.add("sets/global/callout 仅允许 CALLOUT.css / CALLOUT.<lang>.css: " + n);
+                    }
+                }
             } else {
                 sb.warn("sets/global/ 未知域（预留，已忽略）: " + d.getName());
             }
@@ -361,6 +371,11 @@ class SiteScan {
         for (Map.Entry<String, File> e : sb.codeuiFiles.entrySet()) {
             sb.queue.add(new SiteBuilder.Queued(
                     new File(sb.outputDir, "assets/global/codeui/" + e.getKey()), sb.readFile(e.getValue()), 3));
+        }
+        // callout 覆写文件同样复制进 assets/global/callout/（文本：内部 pre-assets/@data 引用可被替换趟处理）
+        for (Map.Entry<String, File> e : sb.calloutFiles.entrySet()) {
+            sb.queue.add(new SiteBuilder.Queued(
+                    new File(sb.outputDir, "assets/global/callout/" + e.getValue().getName()), sb.readFile(e.getValue()), 3));
         }
     }
 

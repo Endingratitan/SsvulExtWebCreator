@@ -1,0 +1,37 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+/* ============================================================================
+   站点级 callout 覆写模板（**永不自动注入**）——复制到 sets/global/callout/ 后生效。
+
+   注入规则（与 codeui 同构）：文件存在 + 本页出现 callout（hasCallout 门控）；
+   位置排在预设 md-callout.css 之后 → 同选择器**后到即胜**（不需要 !important）。
+
+   语言变体：另存为 CALLOUT.<lang>.css（如 CALLOUT.zh.css / CALLOUT.en.css）。
+   页面 lang 命中变体时**只注入变体**（变体自包含）；想让变体叠加本文件，在变体首行写
+     @import url("CALLOUT.css");
+   命中顺序：完整 lang（zh-CN）→ 主语言（zh）→ 都未命中则用 CALLOUT.css。
+
+   可覆写契约（全部在 src/assets/md/css/md-callout.css 里定义）：
+     结构：  --md-callout-radius / --md-callout-pad / --md-callout-gap
+     配色：  --md-callout-<type>-bg / -border / -fg（16 个内置类型）
+     兜底：  --md-callout-default-bg / -border / -fg（未知/扩展类型）
+     图标表：--md-callout-icon-info|bulb|star|warning|caution|check|question|example|quote|list|cross|bug|code
+     当前值：--md-callout-bg / -border / -fg / -icon（基类消费；类型规则把它指向自己的变量）
+   ============================================================================ */
+
+/* ① 新增扩展类型：类名 = md-callout-<type>，视觉直接复用内置变量（这就是 CSS 版"继承"）
+      用法：> [!release] 发布        （不写标题时自动用类型名首字母大写 Release） */
+.md-body blockquote.md-callout-release {
+  --md-callout-bg: var(--md-callout-success-bg);
+  --md-callout-border: var(--md-callout-success-border);
+  --md-callout-fg: var(--md-callout-success-fg);
+  --md-callout-icon: var(--md-callout-icon-check);
+}
+
+/* ② 覆写内置类型配色（同选择器后到即胜） */
+.md-body blockquote.md-callout-note { --md-callout-note-bg: #fff8e1; --md-callout-note-border: #d9a400; }
+
+/* ③ 换标签语言：默认标签包在 .md-callout-label 里（真实文本，可复制/可读屏），
+      隐藏这一层后由 ::after 注入新文字；::before 是图标，保持不动。
+      注意：不要用 font-size:0 隐藏标题——那会把 em 尺寸的图标一起缩成 0（视觉验收踩过） */
+.md-body blockquote.md-callout-note .md-callout-label { display: none; }
+.md-body blockquote.md-callout-note .md-callout-title-default::after { content: "Note"; }

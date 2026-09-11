@@ -62,4 +62,13 @@ public class CliTest {
         RuntimeException e = assertThrows(RuntimeException.class, () -> Cli.parse(new String[]{"build", "x"}));
         assertTrue(e.getMessage().contains("--键 值"));
     }
+
+    @Test
+    void parseErrorsExitNonZero() {
+        // R5：解析错误曾静默 exit 0（CI 里命令写错会被判成功）→ 现返回 2；正常路径 0
+        assertEquals(2, Main.run(new String[]{"nope"}));
+        assertEquals(2, Main.run(new String[]{"build", "--sets"}));
+        assertEquals(2, Main.run(new String[]{"build", "x"}));
+        assertEquals(0, Main.run(new String[]{"version"}));
+    }
 }

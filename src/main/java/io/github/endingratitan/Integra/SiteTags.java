@@ -50,13 +50,33 @@ class SiteTags {
             File[] themes = new File(sb.presetDir, "md/css").listFiles((d, n) -> n.startsWith("md-code-") && n.endsWith(".css"));
             if (themes != null) for (File t : themes) sb2.append(depTag("pre-assets/md/css/" + t.getName(), depth, true));
         }
+        // md-callout.css：仅本页出现 callout 时注入（按需注入门控，与 hasCode 同模式）
+        sb2.append(calloutBaseLink(depth));
         sb2.append("{{WEBGLOBAL_CSS:").append(depth).append("}}");
         // 站点级 CODEUI.css：存在 + 本页有代码块才注入（顺序在主题 css 之后，便于覆盖）
         if (sb.injectCodeuiCss) {
             sb2.append("  <link rel=\"stylesheet\" href=\"").append(SiteBuilder.depthPrefix(depth))
                .append("assets/global/codeui/CODEUI.css\">\n");
         }
+        // 站点级 callout 覆写（存在 + 本页有 callout；命中语言变体则只注入变体）：排在最后，同选择器后到即胜
+        sb2.append(calloutOverrideLink(depth));
         return sb2.toString();
+    }
+
+    /** md-callout.css（预设，按需复制）：仅本页出现 callout 时注入 */
+    String calloutBaseLink(int depth) {
+        if (!sb.hasCallout) return "";
+        sb.refPreset("md/css/md-callout.css");
+        return "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth)
+                + "assets/pre/md/css/md-callout.css\">\n";
+    }
+
+    /** sets/global/callout 的覆写：变体（CALLOUT.&lt;lang&gt;.css）命中则只注入变体，否则回落 CALLOUT.css */
+    String calloutOverrideLink(int depth) {
+        if (!sb.injectCalloutCss) return "";
+        String name = sb.injectCalloutVariant != null ? sb.injectCalloutVariant : "CALLOUT.css";
+        return "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth)
+                + "assets/global/callout/" + name + "\">\n";
     }
 
     String buildScripts(JsonNode root, int depth, boolean hasPageJs, boolean themeActive,
