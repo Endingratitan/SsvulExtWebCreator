@@ -381,8 +381,18 @@ class SitePages {
                 } else {
                     sb.listDirs.put(dir, true);
                 }
+            } else if (preset.equals("json")) {
+                // 纯 CSR：数据由**作者维护的 JSON 文件**提供；构建期不生成任何数据，只注入预设 js
+                // （构建跑一次之后，只上传/覆盖那个 JSON 即可更新列表——"不重建更新"）
+                String file = params != null ? params.path("file").asText("") : "";
+                if (file.isBlank()) {
+                    sb.errors.add(pageSrc + " 的 list ssvul:json 需要在 params 里给 file（JSON 文件路径）");
+                } else if (file.contains("..")) {
+                    sb.errors.add(pageSrc + " 的 list ssvul:json file 不允许包含 ..: " + file);
+                }
             } else {
-                sb.errors.add(pageSrc + " 的 list src 未知的官方预设: " + raw + "（当前可用: ssvul:inline / ssvul:shared）");
+                sb.errors.add(pageSrc + " 的 list src 未知的官方预设: " + raw
+                        + "（当前可用: ssvul:inline / ssvul:shared / ssvul:json）");
                 return null;
             }
             clientSide[0] = true;

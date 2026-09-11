@@ -68,6 +68,9 @@
   mask: var(--md-callout-icon) center / contain no-repeat;
 }
 .md-body .md-callout > :last-child { margin-bottom: 0; }
+/* 嵌套 callout（内层）：去掉底色，避免"俄罗斯套娃"式色块堆叠；左边框与图标保留各自的类型色
+   （0.3.1：嵌套上限放宽到 8 层后的排版收敛；后代选择器对所有更深层同样生效） */
+.md-body blockquote.md-callout blockquote.md-callout { background: none; }
 
 /* 16 个内置类型：把"当前值"指向自己的配色 + 图标（放在基类之后，同特异性时后到即胜） */
 .md-body blockquote.md-callout-note      { --md-callout-bg: var(--md-callout-note-bg);      --md-callout-border: var(--md-callout-note-border);      --md-callout-fg: var(--md-callout-note-fg);      --md-callout-icon: var(--md-callout-icon-info); }

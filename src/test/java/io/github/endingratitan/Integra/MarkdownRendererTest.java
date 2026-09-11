@@ -76,9 +76,18 @@ public class MarkdownRendererTest {
         assertTrue(MarkdownRenderer.render("- a\n  - b\n").contains("<ul>"));
         Map<String, String> strict = Map.of("mode", "strict");
 
+        // 0.3.1：列表上限由「simple 软 4/硬 6、strict 2」统一为 8（与引用/callout 同档）
+        StringBuilder eight = new StringBuilder();
+        for (int d = 1; d <= 8; d++) eight.append("  ".repeat(d - 1)).append("- 层").append(d).append("\n");
+        String md8 = eight.toString();
+        assertTrue(MarkdownRenderer.render(md8).contains("<ul>"));
+        assertTrue(MarkdownRenderer.render(md8, "t", strict).contains("<ul>"));       // strict 8 层放行
+        String md9 = md8 + "  ".repeat(8) + "- 层9\n";
+        assertTrue(MarkdownRenderer.render(md9).contains("<ul>"));                    // simple：超限继续渲染
+
         RuntimeException deep = assertThrows(RuntimeException.class, () ->
-                MarkdownRenderer.render("- a\n  - b\n    - c\n", "t", strict));
-        assertTrue(deep.getMessage().contains("列表嵌套超过两层"));
+                MarkdownRenderer.render(md9, "t", strict));
+        assertTrue(deep.getMessage().contains("列表嵌套超过 8 层"), deep.getMessage());
         assertTrue(deep.getMessage().contains("▸ 本行"));   // 错误上下文三行显示
 
         // --- / +++ / *** 分割线特性：两种模式都放行，各自 class（v2 收尾）
@@ -258,11 +267,33 @@ public class MarkdownRendererTest {
 
     @Test
     void quoteDepthMatrix() {
-        String md = "> 一\n> > 二\n> > > 三\n";
-        assertTrue(MarkdownRenderer.render(md).contains("<blockquote>"));   // simple 压平不抛
+        // 0.3.1：上限由 2 放宽到 8（simple 与 strict 同档，callout 同档）
+        StringBuilder eight = new StringBuilder();
+        for (int d = 1; d <= 8; d++) eight.append("> ".repeat(d)).append("层").append(d).append("\n");
+        String md8 = eight.toString();
+        assertTrue(MarkdownRenderer.render(md8).contains("<blockquote>"));                              // simple：8 层内不警告不报错
+        assertTrue(MarkdownRenderer.render(md8, "t", Map.of("mode", "strict")).contains("<blockquote>")); // strict：同样放行
+        String md9 = md8 + "> ".repeat(9) + "层9\n";
+        assertTrue(MarkdownRenderer.render(md9).contains("<blockquote>"));   // simple：超限只警告一次，仍继续渲染
         RuntimeException e = assertThrows(RuntimeException.class, () ->
-                MarkdownRenderer.render(md, "t", Map.of("mode", "strict")));
-        assertTrue(e.getMessage().contains("引用嵌套超过两层"));
+                MarkdownRenderer.render(md9, "t", Map.of("mode", "strict")));
+        assertTrue(e.getMessage().contains("引用嵌套超过 8 层"), e.getMessage());
+    }
+
+    @Test
+    void calloutSharesQuoteDepthLimit() {
+        // 嵌套 callout 与引用同档：8 层内正常，第 9 层起 simple 警告 / strict 报错
+        String[] types = {"note", "warning", "caution", "tip", "important"};
+        StringBuilder eight = new StringBuilder();
+        for (int d = 1; d <= 8; d++)
+            eight.append("> ".repeat(d)).append("[!").append(types[(d - 1) % types.length]).append("] 层").append(d).append("\n");
+        String html = MarkdownRenderer.render(eight.toString(), "t", Map.of());
+        assertEquals(8, html.split("md-callout md-callout-", -1).length - 1, html);
+        String nine = eight + "> ".repeat(9) + "[!note] 层9\n";
+        assertTrue(MarkdownRenderer.render(nine).contains("md-callout"));    // simple：仍渲染
+        RuntimeException e = assertThrows(RuntimeException.class, () ->
+                MarkdownRenderer.render(nine, "t", Map.of("mode", "strict")));
+        assertTrue(e.getMessage().contains("引用嵌套超过 8 层"), e.getMessage());
     }
 
     @Test

@@ -1,0 +1,13 @@
+{
+  "name": "blog-csr",
+  "title": "博客列表（纯 CSR · 只传文件就更新）",
+  "theme": "light",
+  "description": "list 的 ssvul:json 来源：构建期不生成数据，客户端读取作者维护的 assets/data/blog/index.json",
+  "page": {
+    "div-1": { "type": "topbar", "params": { "brand": "Ssvul" } },
+    "div-2": { "type": "article", "params": { "title": "纯 CSR：只上传文件就更新" },
+      "markdown": "本页的列表用 `src: ssvul:json`：数据来自**你自己维护的 JSON 文件**（`assets/data/blog/index.json`），构建期**不生成、不覆盖**它。\n\n- 覆盖那个 JSON（或再传一篇 md）→ 刷新页面即更新，**不需要重新构建**\n- 条目形状与构建期一致：`{link,type,title,date,excerpt,tags}`（数组，或 `{\"entries\":[…]}` 两种都收）\n- 依赖 `fetch`：`file://` 直开不可用（用本地 http 服务或部署后看），跨域需目标允许 CORS\n- 想要\"客户端自己列目录\"是做不到的（浏览器没有列目录能力）：目录清单必须由某个文件或接口提供，这就是这个 JSON 的角色\n" },
+    "div-3": { "type": "list", "params": { "src": "ssvul:json", "file": "assets/data/blog/index.json", "fields": "date,title,excerpt,tags", "empty": "还没有文章" } },
+    "div-4": { "type": "list", "params": { "src": "ssvul:json", "file": "assets/data/blog/index.json", "fields": "date,title" } }
+  }
+}

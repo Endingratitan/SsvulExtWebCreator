@@ -21,6 +21,12 @@ class MdBlocks {
     /** callout 标记：引用首行 `[!TYPE]` + 可选标题（标题走行内解析） */
     private static final Pattern CALLOUT = Pattern.compile("^\\[!([A-Za-z][A-Za-z0-9-]*)\\]\\s*(.*)$");
 
+    /** **嵌套深度上限（引用/callout 与列表共用同一档）**：到达该层数后
+     *  simple 警告一次并继续渲染（深度计数不再影响产物）、strict 报错（列表降级为普通段落，不丢内容）。
+     *  0.3.1：引用/callout 由 2 放宽到 8，列表由「simple 软 4/硬 6、strict 2」统一为 8。
+     *  实测该上限只影响"警告/报错阈值与深度计数"，不影响能否渲染——所以真正约束可读性的是 CSS 缩进累积。 */
+    static final int NEST_LIMIT = 8;
+
     private final MarkdownRenderer owner;
     private final MdFootnotes fn;
 
@@ -204,14 +210,14 @@ class MdBlocks {
 
     private int renderQuote(StringBuilder out, List<String> lines, int start, int end,
                             int listDepth, int quoteDepth, int base) {
-        boolean flatten = quoteDepth >= 2;
+        boolean flatten = quoteDepth >= NEST_LIMIT;
         if (flatten) {
             if (owner.isStrict()) {
-                owner.error(base + start + 1, "引用嵌套超过两层", "请压缩层级", lines.get(start).trim());
+                owner.error(base + start + 1, "引用嵌套超过 " + NEST_LIMIT + " 层", "请压缩层级", lines.get(start).trim());
                 return start + 1;
             }
             if (!owner.quoteFlattenWarned) {   // simple：压平继续渲染，警告一次
-                owner.warn(base + start + 1, "引用嵌套超过两层（simple：压平继续渲染）");
+                owner.warn(base + start + 1, "引用嵌套超过 " + NEST_LIMIT + " 层（simple：继续渲染，仅提示一次）");
                 owner.quoteFlattenWarned = true;
             }
         }
@@ -301,14 +307,15 @@ class MdBlocks {
     private int renderList(StringBuilder out, List<String> lines, int i, int end,
                            int listDepth, int quoteDepth, int base) {
         int levels = listDepth + 1;
-        if (owner.isStrict()) {
-            if (levels > 2) {
-                owner.error(base + i + 1, "列表嵌套超过两层", "请压缩列表层级", MarkdownRenderer.stripIndent(lines.get(i)).trim());
-                return renderFallbackLine(out, lines, i, end, base);
+        if (levels > NEST_LIMIT) {
+            if (owner.isStrict()) {
+                owner.error(base + i + 1, "列表嵌套超过 " + NEST_LIMIT + " 层", "请压缩列表层级", MarkdownRenderer.stripIndent(lines.get(i)).trim());
+                return renderFallbackLine(out, lines, i, end, base);   // 降级为普通段落：报错但不丢内容
             }
-        } else {
-            if (levels > 6) return renderFallbackLine(out, lines, i, end, base);   // 超 6 层不再渲染嵌套
-            if (levels > 4) owner.warn(base + i + 1, "列表嵌套已到第 " + levels + " 层（软上限 4），请考虑压缩层级");
+            if (!owner.listFlattenWarned) {   // simple：继续渲染，仅提示一次（与引用的软上限同档）
+                owner.warn(base + i + 1, "列表嵌套超过 " + NEST_LIMIT + " 层（simple：继续渲染，仅提示一次）");
+                owner.listFlattenWarned = true;
+            }
         }
         String t = MarkdownRenderer.stripIndent(lines.get(i));
         boolean ordered = Character.isDigit(t.charAt(0));

@@ -45,13 +45,15 @@ function serialize(n) {
 const documentStub = { createElement: El, readyState: 'loading', addEventListener() {} };
 const repoRoot = path.resolve(__dirname, '../../..');
 
-/* 全新 window + 与浏览器相同的加载顺序（runtime 必须先于组件） */
-function makeWindow() {
+/* 全新 window + 与浏览器相同的加载顺序（runtime 必须先于组件）；fetchImpl 供 ssvul:json 用例注入 */
+function makeWindow(fetchImpl) {
   const w = {};
-  for (const rel of ['src/assets/runtime/ssvul-div.js', 'src/assets/divs/list/list.js', 'src/assets/list/inline.js']) {
+  const files = ['src/assets/runtime/ssvul-div.js', 'src/assets/divs/list/list.js',
+    'src/assets/list/inline.js', 'src/assets/list/json.js'];
+  for (const rel of files) {
     const code = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
     new Function('window', 'document', 'fetch', 'CustomEvent', code)(
-      w, documentStub, () => Promise.reject(new Error('stub: no fetch')),
+      w, documentStub, fetchImpl || (() => Promise.reject(new Error('stub: no fetch'))),
       function CustomEvent(type, init) { return { type, detail: (init || {}).detail }; }
     );
   }
@@ -123,6 +125,33 @@ const entry = { link: 'pages/blog/a/', title: '甲文', date: '2026-09-11', exce
   const s6 = serialize(res6.items[0]);
   ok(s6.indexOf('list-empty') >= 0 && s6.indexOf('还没有内容') >= 0, 'empty 约定：0 条时输出提示条目');
 
-  console.log(failed === 0 ? '\n全部通过' : '\n失败 ' + failed + ' 项');
-  process.exit(failed === 0 ? 0 : 1);
+  /* 4) ssvul:json 预设：纯 CSR（数据来自作者维护的 JSON 文件，构建期不参与） */
+  console.log('ssvul:json 预设（纯 CSR）');
+  const w7 = makeWindow(() => Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({ entries: [entry, { link: 'pages/blog/b/', title: '乙文', date: '2026-09-12' }] })
+  }));
+  const r7 = rootEl({ 'data-depth': '1' });
+  const res7 = await w7.SsvulListPresets.json(r7, { file: 'assets/data/blog/index.json', fields: 'date,title' });
+  ok(res7.items.length === 2, '{"entries":[…]} 形状可读');
+  ok(serialize(res7.items[0]).indexOf('href="../pages/blog/a/"') >= 0, '相对路径按 data-depth 加前缀');
+  ok(serialize(res7.items[0]).indexOf('list-excerpt') < 0, 'fields 透传');
+
+  const w8 = makeWindow(() => Promise.resolve({ ok: true, json: () => Promise.resolve([entry]) }));
+  const res8 = await w8.SsvulListPresets.json(rootEl({}), { file: '/abs/index.json' });
+  ok(res8.items.length === 1, '裸数组形状可读 + / 开头路径不加前缀');
+
+  const w9 = makeWindow(() => Promise.resolve({ ok: false, status: 404 }));
+  let threw404 = false;
+  try { await w9.SsvulListPresets.json(rootEl({}), { file: 'x.json' }); } catch (e) { threw404 = true; }
+  ok(threw404, '404 → 抛错（薄壳转成可见提示）');
+  let threwNoFile = false;
+  try { await w9.SsvulListPresets.json(rootEl({}), {}); } catch (e) { threwNoFile = true; }
+  ok(threwNoFile, '缺 file 参数 → 抛错');
+
+  const w10 = makeWindow(() => Promise.resolve({ ok: true, json: () => Promise.resolve([]) }));
+  const res10 = await w10.SsvulListPresets.json(rootEl({}), { file: 'x.json', empty: '还没有文章' });
+  ok(serialize(res10.items[0]).indexOf('list-empty') >= 0, 'empty 约定同样生效');
+
+  console.log(failed === 0 ? '\n全部通过' : '\n失败 ' + failed + ' 项');  process.exit(failed === 0 ? 0 : 1);
 })();

@@ -6,7 +6,7 @@
   "page": {
     "div-1": { "type": "topbar", "params": { "brand": "Ssvul" } },
     "div-2": { "type": "article", "params": { "title": "callout 提示块" },
-      "markdown": "引用块**首行**写 `[!TYPE]` 即成提示块。`md-callout.css` 只在**本页出现 callout 时**注入（hasCallout 门控，与 code-ui 的 hasCode 同构）。\n\n> [!note]\n> 内置默认中文标签「注意」+ 蓝色调；标题是构建期写入的**真实文本**（可复制、可读屏）。\n\n> [!tip] **自定义**标题\n> 写了标题就用你的：行内 md 生效（粗体、`代码` 都可以）。\n\n> [!warning]\n> WARNING / CAUTION / DANGER 是递进的三档警示色。\n\n> [!bug]\n> BUG 与 DEBUG 也在表里——内置共 16 个类型。\n\n> [!release]\n> `release` 不是内置类型 → 构建期**警告一次**，仍按扩展类型渲染：标题自动回落 Release，配色落到中性兜底；本示例站用 `sets/global/callout/CALLOUT.css` 给它上了样式。\n\n> [!quote]\n> 想写**字面**的标记就用行内代码包起来；注意反斜杠加方括号在本项目里是数学定界符，不是转义。" },
+      "markdown": "引用块**首行**写 `[!TYPE]` 即成提示块。`md-callout.css` 只在**本页出现 callout 时**注入（hasCallout 门控，与 code-ui 的 hasCode 同构）。\n\n> [!note]\n> 内置默认中文标签「注意」+ 蓝色调；标题是构建期写入的**真实文本**（可复制、可读屏）。\n\n> [!tip] **自定义**标题\n> 写了标题就用你的：行内 md 生效（粗体、`代码` 都可以）。\n\n> [!warning]\n> WARNING / CAUTION / DANGER 是递进的三档警示色。\n\n> [!bug]\n> BUG 与 DEBUG 也在表里——内置共 16 个类型。\n\n> [!release]\n> `release` 不是内置类型 → 构建期**警告一次**，仍按扩展类型渲染：标题自动回落 Release，配色落到中性兜底；本示例站用 `sets/global/callout/CALLOUT.css` 给它上了样式。\n\n> [!quote]\n> 想写**字面**的标记就用行内代码包起来；注意反斜杠加方括号在本项目里是数学定界符，不是转义。\n\n> [!important]\n> 嵌套演示（0.3.1：上限由 2 层放宽到 8 层，内层 callout 自动**去底色**）：\n>\n> > [!warning]\n> > 第二层：底色已去掉，只剩左边框与图标。\n> >\n> > > [!caution] 第三层\n> > > 更深一层同理；超过 8 层时 simple 警告一次、strict 报错。" },
     "div-3": { "type": "article", "params": { "title": "标题开关（div 级 md-options 级联）" },
       "md-options": { "callout-title": "none" },
       "markdown": "本 div 把 `md-options.callout-title` 设为 `none`——级联只影响本 div：\n\n> [!important]\n> 没有标题元素，只剩色块、左边框与图标。\n\n> [!success] 但我可以自己写标题\n> `none` 只关掉**默认标签**，作者自定义标题依然生效。" },

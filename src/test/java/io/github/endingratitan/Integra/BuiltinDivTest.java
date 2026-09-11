@@ -185,6 +185,38 @@ public class BuiltinDivTest {
     }
 
     @Test
+    void listJsonPresetPureCsr() throws Exception {
+        // ssvul:json = 纯 CSR：构建期**不生成数据**，只注入预设 js；数据由作者维护（sets/data → assets/data 照常复制）
+        File[] s = site("");
+        write(new File(s[0], "data/blog/index.json"),
+                "[{\"link\":\"pages/blog/a/\",\"title\":\"甲文\",\"date\":\"2026-09-11\"}]");
+        write(new File(s[0], "pages/csr.json"),
+                "{\"name\":\"csr\",\"page\":{\"div-1\":{\"type\":\"list\",\"params\":" +
+                "{\"src\":\"ssvul:json\",\"file\":\"assets/data/blog/index.json\",\"fields\":\"date,title\"}}}}");
+        SiteBuilder.build(s[0], s[1], new File("src/assets"));
+        String html = Files.readString(new File(s[1], "pages/csr/index.html").toPath());
+        assertTrue(html.contains("data-src=\"ssvul:json\""), html);
+        assertTrue(html.contains("data-file=\"assets/data/blog/index.json\""), html);
+        assertTrue(html.contains("assets/pre/list/json.js"), html);       // 预设按名自动注入
+        assertTrue(!html.contains("list-data"), "纯 CSR 不内联数据");
+        assertTrue(new File(s[1], "assets/data/blog/index.json").isFile(), "作者维护的数据文件按 data 规则复制");
+        assertTrue(!new File(s[1], "assets/data/list").exists(), "不发射任何分片");
+    }
+
+    @Test
+    void listJsonPresetRequiresFile() throws Exception {
+        File[] s = site("");
+        write(new File(s[0], "pages/INDEX.json"),
+                "{\"name\":\"INDEX\",\"page\":{\"div-1\":{\"type\":\"list\",\"params\":{\"src\":\"ssvul:json\"}}}}");
+        try {
+            SiteBuilder.build(s[0], s[1], new File("src/assets"));
+            fail("应当因缺 file 参数而失败");
+        } catch (RuntimeException e) {
+            assertTrue(e.getMessage().contains("需要在 params 里给 file"), e.getMessage());
+        }
+    }
+
+    @Test
     void breadcrumbPagerBacktotopAssembled() throws Exception {
         File[] s = site("");
         write(new File(s[0], "pages/INDEX.json"),

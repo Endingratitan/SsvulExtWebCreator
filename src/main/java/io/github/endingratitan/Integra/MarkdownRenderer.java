@@ -43,6 +43,7 @@ public class MarkdownRenderer {
     boolean inFootDef;                         // 正在渲染脚注定义内容（内部引用按字面）
     boolean tocOn;                             // md-options.toc：构建期生成目录
     boolean quoteFlattenWarned;                // 引用压平警告只报一次（simple 模式）
+    boolean listFlattenWarned;                 // 列表压平警告只报一次（simple 模式）
     boolean hadCode;                           // 本次渲染是否出现围栏代码块（code-ui 注入门控）
     boolean hadCallout;                        // 本次渲染是否出现 callout（md-callout.css / CALLOUT css 注入门控）
     boolean calloutTitleOn = true;             // md-options.callout-title：default|none（none=不注入默认标签）

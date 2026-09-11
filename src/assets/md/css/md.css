@@ -10,6 +10,8 @@
 .md-body a { color: #3b5bdb; }
 .md-body a:hover { text-decoration: underline; }
 .md-body ul, .md-body ol { padding-left: 2em; margin: 0 0 1em; }
+/* 嵌套列表缩进收敛（0.3.1：嵌套上限放宽到 8 层后，避免 8×2em 把内容挤没） */
+.md-body ul ul, .md-body ul ol, .md-body ol ul, .md-body ol ol { padding-left: 1.2em; }
 .md-body li { margin: .25em 0; }
 .md-body blockquote { margin: 0 0 1em; padding: .6em 1em; color: #5a636e;
   background: #f4f6f9; border-left: .25em solid #9bb0d8; border-radius: 0 8px 8px 0; }

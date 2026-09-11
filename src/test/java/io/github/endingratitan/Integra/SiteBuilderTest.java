@@ -71,7 +71,7 @@ public class SiteBuilderTest {
         File sets = tmp.resolve("sets").toFile();
         File out = tmp.resolve("output").toFile();
         write(new File(sets, "Environment.config"),
-                "cname=example.com\nreadme=1\nbucket=(bk,https://bucket.example.com)\n");
+                "cname=example.com\nreadme=1\nbucket=[bk,https://bucket.example.com]\n");
         write(new File(sets, "divs/navbar/template.html"), "<nav>{{brand}}</nav>");
         write(new File(sets, "divs/navbar/nav.js"), "console.log(1);");
         write(new File(sets, "divs/navbar/nav.css"), ".nav{}");
@@ -167,7 +167,7 @@ public class SiteBuilderTest {
         File sets = tmp.resolve("sets").toFile();
         File out = tmp.resolve("output").toFile();
         write(new File(sets, "Environment.config"),
-                "cname=example.com\noffline=1\nbucket=(bk,https://bucket.example.com)\n");
+                "cname=example.com\noffline=1\nbucket=[bk,https://bucket.example.com]\n");
         write(new File(sets, "outer/bk/img/logo.png"), "PNGDATA");
         write(new File(sets, "divs/t/template.html"), "<div>{{content}}</div>");
         write(new File(sets, "pages/INDEX.json"),
@@ -184,7 +184,7 @@ public class SiteBuilderTest {
         File sets = tmp.resolve("sets").toFile();
         File out = tmp.resolve("output").toFile();
         write(new File(sets, "Environment.config"),
-                "cname=example.com\noffline=1\nbucket=(bk,https://bucket.example.com)\n");
+                "cname=example.com\noffline=1\nbucket=[bk,https://bucket.example.com]\n");
         write(new File(sets, "divs/t/template.html"), "<div>{{content}}</div>");
         write(new File(sets, "pages/INDEX.json"),
                 "{\"name\":\"INDEX\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"![图](bk/missing.png)\"}}}");
@@ -198,7 +198,7 @@ public class SiteBuilderTest {
         File sets = tmp.resolve("sets").toFile();
         File out = tmp.resolve("output").toFile();
         write(new File(sets, "Environment.config"),
-                "cname=example.com\nbucket=(bk,https://bucket.example.com)\n");
+                "cname=example.com\nbucket=[bk,https://bucket.example.com]\n");
         write(new File(sets, "outer/bk/img/logo.png"), "PNGDATA");   // outer 存在 → 对照警告生效（未命中的引用）
         write(new File(sets, "divs/t/template.html"), "<div>{{content}}</div>");
         write(new File(sets, "pages/INDEX.json"),
@@ -241,12 +241,14 @@ public class SiteBuilderTest {
         File out = tmp.resolve("output").toFile();
         write(new File(sets, "Environment.config"), "cname=example.com\n");
         write(new File(sets, "divs/t/template.html"), "<section>{{content}}</section>");
+        // 用 strict 独有的报错点（原生 HTML 行）验证 div 级 md-options 真的生效；
+        // 0.3.1 起嵌套上限放宽到 8 层，不能再拿"3 层列表"当报错样本
         write(new File(sets, "pages/INDEX.json"),
                 "{\"name\":\"INDEX\",\"page\":{\"div-1\":{\"type\":\"t\"," +
-                "\"md-options\":{\"mode\":\"strict\"},\"markdown\":\"- a\\n  - b\\n    - c\\n\"}}}");
+                "\"md-options\":{\"mode\":\"strict\"},\"markdown\":\"<div>原生 HTML</div>\\n\"}}}");
         RuntimeException e = assertThrows(RuntimeException.class, () ->
                 SiteBuilder.build(sets, out, new File("src/assets")));
-        assertTrue(e.getMessage().contains("列表嵌套超过两层"), e.getMessage());   // div 级 strict 真的生效
+        assertTrue(e.getMessage().contains("strict 模式不支持 HTML"), e.getMessage());   // div 级 strict 真的生效
     }
 
     @Test
@@ -549,7 +551,7 @@ public class SiteBuilderTest {
     void codeUiItemsStructureAndClasses() throws Exception {
         File sets = tmp.resolve("sets").toFile();
         File out = tmp.resolve("output").toFile();
-        write(new File(sets, "Environment.config"), "cname=example.com\nbucket=(bk,https://bucket.example.com)\n");
+        write(new File(sets, "Environment.config"), "cname=example.com\nbucket=[bk,https://bucket.example.com]\n");
         write(new File(sets, "divs/t/template.html"), "<section>{{content}}</section>");
         write(new File(sets, "pages/INDEX.json"),
                 "{\"name\":\"INDEX\",\"code-ui\":{\"items\":[\"lang-label\",\"mac-dots\",\"copy-btn\"]," +

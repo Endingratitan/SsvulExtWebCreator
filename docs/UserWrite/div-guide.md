@@ -92,12 +92,14 @@ window.SsvulDiv.register('家族名', {
 |---|---|---|
 | bar / navbar / topbar | brand | 导航家族（家族名=bar）：bar 基类汉堡响应式 ← navbar ← topbar sticky+滚动阴影 |
 | search | placeholder、limit | 站内搜索（构建期 search-index.json，按 data-depth 取路径；fetch 依赖 http(s)，file:// 直开不可用） |
-| list | src、dir、pattern、fields | 列表：`src` 决定来源与渲染时机（不写 = 构建期静态、零 JS；`ssvul:inline`/`ssvul:shared` 用官方预设；裸函数名 = 你自己的外接函数，返回 `{items:[…]}`）。**过滤/排序只有构建期一份实现**：构建期来源按日期倒序（同日按标题码点序），客户端来源不做任何排序——要"最近 N 篇/按标签/随机"就写自己的对接函数 |
+| list | src、dir、pattern、fields | 列表：`src` 决定来源与渲染时机（不写 = 构建期静态、零 JS；`ssvul:inline`/`ssvul:shared` 用官方预设；`ssvul:json` = 纯 CSR：读你自己维护的 JSON（构建期不生成数据，只上传文件就更新）；裸函数名 = 你自己的外接函数，返回 `{items:[…]}`）。**过滤/排序只有构建期一份实现**：构建期来源按日期倒序（同日按标题码点序），客户端来源不做任何排序——要"最近 N 篇/按标签/随机"就写自己的对接函数 |
 | breadcrumb | root-label、separator | 路径面包屑 |
 | backtotop | threshold | 回到顶部 |
 | pager | current、total、base | 分页 |
 | theme-switcher | themes、labels | 主题切换（localStorage ssvul-theme；按钮组四态样式 + 选中态 .active） |
 | palette-picker | palettes、labels（clear=恢复初始主题） | 整页主题切换按钮组（SsvulTheme.set；选中态 .active + aria-pressed；生成器自动全量链接 md-code-*.css） |
+
+> list 的完整契约与配方见 [list-guide.md](list-guide.md)。
 
 ## 9. 完整示例：继承内置 bar 的自定义导航
 

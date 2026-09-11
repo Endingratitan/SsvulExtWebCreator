@@ -47,7 +47,7 @@ bucket键的值将以数组存储，允许多次输入；其他键以最后一�
 |---------------|------------------------------------------------------------------|
 | cname         | 唯一必填项，缺失时程序报错；填0则不创建CNAME文件，认为你使用端口 |
 | server        | 是否部署在服务器上，是为1，不是为0，默认0                        |
-| bucket        | 外部 bucket 存储，值格式 (调用名,完整URL)，如 (bk,https://bucket.example.com)；允许多次输入；内容中以 `调用名/...` 引用（如 bk/img/logo.png），生成时替换为完整 URL |
+| bucket        | 外部 bucket 存储，值格式 `[调用名,href,EndPoint,...]`，如 `[bk,https://bucket.example.com]`；**允许多次输入**（多个 bucket）。第 3 段起为预留字段（第 3 段约定为 `EndPoint`）；内容中以 `调用名/...` 引用（如 bk/img/logo.png），生成时替换为 href。**旧写法 `(调用名,URL)` 不再接受**（见 [history.md](history.md)） |
 | categories    | divs中是否需要一中间层目录作为categories，需要1，不要0，默认为0  |
 | readme        | 会不会在output中添加readme等md文件，需要为1，不要为0，默认为0    |
 | local-favicon | favicon目录是在项目中还是云端，0为项目，1为bucket，默认0         |
@@ -75,7 +75,7 @@ div下可有JS、CSS文件与template.html模板，不能有图片、json等数�
 |---|---|---|
 | bar / navbar / topbar | brand | 导航家族：基类 bar（汉堡响应式）← navbar ← topbar（sticky+滚动阴影）；家族注册名=bar |
 | search | placeholder、limit | 站内静态搜索（构建期生成 assets/data/search-index.json，路径按 div 的 data-depth 解析） |
-| list | src、dir、pattern、fields（其余键原样透传给对接函数） | 列表组件：**数据来源与渲染时机全由 `src` 决定**——不写 = `build:page-index`（构建期直接出静态条目、**零 JS**）；`ssvul:inline`（构建期内联 + 客户端预设渲染，零请求/file:// 可用）；`ssvul:shared`（按目录分片 `assets/data/list/<dir>.json`，多页共用一份字节，fetch 依赖 http(s)）；`<你的函数名>`（构建期只写 `data-src`，由你的外接函数返回 `{items:[…]}`，用于"只上传文件不重建"） |
+| list | src、dir、pattern、fields（其余键原样透传给对接函数） | 列表组件：**数据来源与渲染时机全由 `src` 决定**——不写 = `build:page-index`（构建期直接出静态条目、**零 JS**）；`ssvul:inline`（构建期内联 + 客户端预设渲染，零请求/file:// 可用）；`ssvul:shared`（按目录分片 `assets/data/list/<dir>.json`，多页共用一份字节，fetch 依赖 http(s)）；`ssvul:json`（**纯 CSR**：客户端读你自己维护的 JSON 文件，构建期不生成任何数据——**只上传文件就更新**）；`<你的函数名>`（构建期只写 `data-src`，由你的外接函数返回 `{items:[…]}`） |
 | breadcrumb | root-label、separator | 按 URL 路径生成面包屑（纯客户端） |
 | backtotop | threshold | 回到顶部按钮 |
 | pager | current、total、base | 分页导航 |
@@ -162,7 +162,7 @@ offline=0 时：输出线上 URL，但若 outer 目录存在而引用未命中 �
 
 #### md 语法（v1 子集）
 标题（# 后须空格，自动分配锚点 id：页面 div 内为 `div-ID 前缀` 形态如 `div-1-s1`（多 md div 不重复），裸 md 页面为 `s1/s2…`；`#锚点` 链接放行不校验，需写全带前缀的 id）、段落、**粗**/*斜*/_斜_（_ 两侧不得同时为字母数字）、`行内代码`、~~删除~~、
-[链接](url)、![图片](url)、列表（含任务列表 - [ ]；simple 不限层、strict 两层）、引用块（每行须 >；simple 超两层压平警告、strict 两层）、围栏代码块（```lang）、
+[链接](url)、![图片](url)、列表（含任务列表 - [ ]；simple 不限层、strict 限 8 层）、引用块（每行须 >；simple 超 8 层警告一次、strict 超 8 层报错）、围栏代码块（```lang）、
 表格（:--- 对齐）、$...$ 与 \(...\) 行内数学、$$...$$ 与 \[...\] 块数学（块级支持多行）、[[key]] 按键、
 分割线（***/___ 实线、--- 虚线、+++ 双线，各自独立 class 可分别定制 CSS）、<https://> 自动链接、\ 转义（含 \$ 强制输出 $）、
 引用块**首行** `> [!TYPE]` = 提示块 callout（16 个内置类型 + 扩展类型；标题可自定义，详见「提示块 callout」小节）。
@@ -174,7 +174,7 @@ offline=0 时：输出线上 URL，但若 outer 目录存在而引用未命中 �
 `footnote-display: end`（默认：脚注区放 md-body 末尾；div 模板可用 `{{footnotes}}` 占位符接管位置）| `inline`（定义处就地显示）。
 
 md 渲染选项（页面 json 顶层 `md-options`，全部有默认值可不写）：
-- `mode`: `simple`（默认，GitHub 兼容：--- 分隔线、原生 HTML、不限列表嵌套、未闭合围栏不报错）| `strict`（严格报错，列表嵌套限两层）
+- `mode`: `simple`（默认，GitHub 兼容：--- 分隔线、原生 HTML、不限列表嵌套、未闭合围栏不报错）| `strict`（严格报错，列表嵌套限 8 层）
 - `footnote-display`: `end`（默认，脚注统一放）| `inline`（就地显示）
 - `toc`: `true` 构建期生成目录（md-body 顶部，h2~h6 入目录、h1 排除；默认 false）
 - `callout-title`: `default`（默认，注入 callout 默认标签）| `none`（不出默认标题元素，作者自定义标题仍生效）
@@ -186,13 +186,13 @@ simple/strict 行为矩阵（⑥ 定稿；两模式支持面相同，仅容忍�
 | 语法点 | simple（默认） | strict |
 |---|---|---|
 | 未闭合代码围栏 | 渲染到文末 | 报错"未闭合的代码块" |
-| 列表嵌套 | 不限层；>4 层警告、>6 层停止展开 | ≤2 层，超出报错 |
+| 列表嵌套 | 不限层；超 8 层警告一次（仍继续渲染） | 超 8 层报错（降级为普通段落，不丢内容） |
 | 表格列数不齐 | 按表头列数补齐/截断 | 报错（分隔行/数据行） |
 | 分割线 `---` | `<hr class="md-hr-dash">`（虚线，可定制 CSS） | 同左 |
 | 分割线 `+++` | `<hr class="md-hr-plus">`（双线，可定制 CSS） | 同左 |
 | 分割线 `***`/`___` | `<hr class="md-hr-star">`（实线，可定制 CSS） | 同左 |
 | 原生 HTML 行 | 透传 | 报错"请改用 div.raw" |
-| 引用嵌套 | 超 2 层警告一次并压平渲染 | 超 2 层报错 |
+| 引用嵌套 | 超 8 层警告一次并压平渲染（仍嵌套渲染，只是不再计深度） | 超 8 层报错 |
 | 引用内缺 `>` 行 | 警告，按段落继续 | 报错 |
 | 块数学 `$$` 未闭合 | 报错 | 报错 |
 | 行内数学未闭合 `$` | 孤 `$` 按行尾收口渲染 + 警告；`$数字`（货币）保持字面 | 报错；`$数字` 字面 |

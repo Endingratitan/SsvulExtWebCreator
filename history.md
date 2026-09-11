@@ -53,3 +53,34 @@
 **8) 预设函数（构建期按名自动复制 + 注入，作者无需手写 `<script>`）**
 - 资源位于 `src/assets/list/*.js`，按需复制到 `output/assets/pre/list/*.js`（沿用 `pre-assets/` 既有机制）。
 - 目前两个：`ssvul:inline`、`ssvul:shared`。名单扩充（例如目录清单、对象存储列表）**留待后续版本**，届时也记在这里。
+
+## 0.3.1（2026-09）
+
+### Environment.config 的 `bucket` 改成方括号字段列表
+
+**1) 新写法**：`bucket=[调用名,href,EndPoint,...]`——仍然**可多次输入**（即配置多个 bucket），一行一个：
+
+```ini
+bucket=[bk,https://bucket.example.com]
+bucket=[img,https://img.example.com,https://s3.example.com]
+```
+
+- 第 1 段 **调用名**：非空、不含 `/` 与空格（它同时是内容里的引用前缀）；
+- 第 2 段 **href**：必须带协议（`http(s)://`），末尾 `/` 会自动去掉；
+- 第 3 段起是**预留字段**：第 3 段约定为 **EndPoint**（供将来"按目录列文件"的来源使用），更多段原样保留给后续版本；**字段内不能含逗号**。
+
+**2) 旧写法不再接受**：`(调用名,URL)` 与裸 `调用名,URL` 一律**报错**并提示新格式（不再有兼容分支）。
+
+**3) 页面 json 与内容完全不受影响**：以前写好的 json 原样可用——
+内容里依旧写 `调用名/路径`（如 `bk/img/logo.png`）、`favicon: "bk/favicon.ico"`、`code-ui.bg`、md 里的图片链接等；
+替换规则与 `offline=1` 的 outer 镜像行为**一个字都没改**。
+
+**4) 迁移**：把 `bucket=(bk,https://x)` 改成 `bucket=[bk,https://x]`。
+`init` 骨架（`src/main/resources/templates/site/Environment.config`）与示例站已同步。
+
+### 同版本的非破坏性变化（备忘，不涉及迁移）
+
+- **新增预设 `ssvul:json`**：`list` 的**纯 CSR** 数据来源——客户端 fetch 一份你自己维护的 JSON（构建期不生成任何数据），适合"只上传文件就更新"。约定参数：`file`（必填，JSON 路径）、`fields`、`empty`。
+- **嵌套上限统一放宽到 8 层**：引用/callout 由 2 → 8；列表由「simple 软 4/硬 6、strict 2」→ 8（`MdBlocks.NEST_LIMIT`，两处共用）。simple 超限只提示一次并继续渲染，strict 超限报错。
+- **嵌套 callout 去底色**（`.md-callout` 内层 `background: none`，保留左边框与图标）；**嵌套列表缩进收敛**（`ul ul` 等改为 `padding-left: 1.2em`）——都是深度放宽后的排版收敛。
+- 版本号：`0.3.0-alpha2` → **`0.3.1`**（`build.gradle`；`init` 骨架写入的版本随之变化）。

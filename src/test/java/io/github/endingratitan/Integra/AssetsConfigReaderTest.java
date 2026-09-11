@@ -32,13 +32,17 @@ public class AssetsConfigReaderTest {
     @Test
     void configParsing() throws Exception {
         File f = write("Environment.config",
-                "cname=example.com\nbucket=(bk,https://bucket.example.com)\nbucket=(img,https://img.example.com)\nreadme=1\n");
+                "cname=example.com\nbucket=[bk,https://bucket.example.com]\n"
+                + "bucket=[img,https://img.example.com/,https://s3.example.com]\nreadme=1\n");
         AssetsConfigReader acr = new AssetsConfigReader(f);
         assertTrue(acr.Read());
         assertEquals("example.com", acr.getConfig().get("cname").get(0));
-        assertEquals(2, acr.getConfig().get("bucket").size());
+        assertEquals(2, acr.getConfig().get("bucket").size());                  // 多个 bucket 仍然支持
         assertEquals("https://bucket.example.com", acr.getBuckets().get("bk"));
-        assertEquals("https://img.example.com", acr.getBuckets().get("img"));
+        assertEquals("https://img.example.com", acr.getBuckets().get("img"));   // href 末尾斜线被规范化
+        assertEquals("", acr.getBucketEndpoint("bk"));                          // 未声明第 3 段
+        assertEquals("https://s3.example.com", acr.getBucketEndpoint("img"));   // EndPoint = 第 3 段
+        assertEquals(3, acr.getBucketFields().get("img").size());
     }
 
     @Test
@@ -49,11 +53,18 @@ public class AssetsConfigReaderTest {
         AssetsConfigReader proto = new AssetsConfigReader(write("b.config", "cname=https://x.com\n"));
         assertThrows(RuntimeException.class, proto::Read);                    // cname 带协议
 
-        AssetsConfigReader noProto = new AssetsConfigReader(write("c.config", "bucket=bk,nourl\n"));
-        assertThrows(RuntimeException.class, noProto::Read);                  // bucket 缺协议
+        // 0.3.1：bucket 改为 [调用名,href,EndPoint,...]；旧语法明确报错（见 history.md）
+        AssetsConfigReader parenSyntax = new AssetsConfigReader(write("c.config", "bucket=(bk,https://a.com)\n"));
+        assertThrows(RuntimeException.class, parenSyntax::Read);              // 旧圆括号写法
+        AssetsConfigReader bareSyntax = new AssetsConfigReader(write("e.config", "bucket=bk,https://a.com\n"));
+        assertThrows(RuntimeException.class, bareSyntax::Read);               // 缺方括号
+        AssetsConfigReader noProto = new AssetsConfigReader(write("f.config", "bucket=[bk,nourl]\n"));
+        assertThrows(RuntimeException.class, noProto::Read);                  // href 缺协议
+        AssetsConfigReader oneField = new AssetsConfigReader(write("g.config", "bucket=[bk]\n"));
+        assertThrows(RuntimeException.class, oneField::Read);                 // 段数不足
 
         AssetsConfigReader dup = new AssetsConfigReader(write("d.config",
-                "bucket=(bk,https://a.com)\nbucket=(bk,https://b.com)\n"));
+                "bucket=[bk,https://a.com]\nbucket=[bk,https://b.com]\n"));
         assertThrows(RuntimeException.class, dup::Read);                      // 调用名重复
     }
 

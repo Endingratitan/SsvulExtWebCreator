@@ -1,0 +1,5 @@
+[
+  { "link": "pages/blog/post/",   "type": "md", "title": "博文",       "date": "2026-09-07", "excerpt": "由页面同目录的 md 生成；本条目来自作者维护的 JSON，不是构建期生成的。", "tags": "demo,csr" },
+  { "link": "pages/blog/hello/",  "type": "md", "title": "第二篇博文", "date": "2026-09-06", "excerpt": "与第一篇互链。", "tags": "demo" },
+  { "link": "pages/docs/guide/",  "type": "md", "title": "指南",       "date": "2026-09-05", "excerpt": "多级目录下的裸 md 页面。", "tags": "docs" }
+]
