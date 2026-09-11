@@ -126,7 +126,8 @@ class SitePages {
         sb.engineAssets = List.of();
         MarkdownRenderer.setCodeEngine(sb.engineChain);
 
-        Set<String> pageTypes = new LinkedHashSet<>();
+        Set<String> pageTypes = new LinkedHashSet<>();       // 需要 css 的 div 类型
+        Set<String> jsTypes = new LinkedHashSet<>();         // 需要 js 的 div 类型（list 的构建期来源只要 css）
         boolean[] hasMd = {false};
         boolean[] hasCode = {false};
         boolean[] hasCallout = {false};
@@ -135,7 +136,9 @@ class SitePages {
         sb.copyJsNeeded = false;
         sb.injectCodeuiCss = false;
         sb.injectCodeuiJs = false;
-        String content = renderDivGroup("", root.path("page"), "页面 " + name, pageTypes, hasMd, hasCode, hasCallout, sb.mdOptions);
+        sb.listAssets.clear();
+        sb.currentPageLink = p.index ? "" : "pages/" + p.rel + name + "/";
+        String content = renderDivGroup("", root.path("page"), "页面 " + name, pageTypes, jsTypes, hasMd, hasCode, hasCallout, sb.mdOptions);
         // 性能门控：本页确有块落到带客户端资源的成员（如 hljs）才注入引擎资源
         if (sb.engineChain.clientAssetsNeeded()) sb.engineAssets = sb.engineChain.autoAssets();
         // CODEUI 注入门控：站点级文件存在 + 本页有代码块；copy-btn 项触发内置复制脚本
@@ -147,14 +150,19 @@ class SitePages {
         sb.hasCallout = hasCallout[0];
         sb.resolveCalloutFiles(root.path("lang").asText("zh-CN"));
 
-        // 页面级 js/css：origin 去重 + 项级去重 + runtime（聚合助手）
-        List<SiteScan.DivInfo> pageDivs = new ArrayList<>();
+        // 页面级 js/css：origin 去重 + 项级去重 + runtime（聚合助手）；js 只收"需要 js"的类型
+        List<SiteScan.DivInfo> cssDivs = new ArrayList<>();
         for (String type : pageTypes) {
             SiteScan.DivInfo info = sb.scan.divOf(type);
-            if (info != null) pageDivs.add(info);
+            if (info != null) cssDivs.add(info);
         }
-        String pageJsText = pageDivs.isEmpty() ? "" : sb.aggregateDivJs(pageDivs);
-        String pageCssText = pageDivs.isEmpty() ? "" : sb.aggregateDivCss(pageDivs);
+        List<SiteScan.DivInfo> jsDivs = new ArrayList<>();
+        for (String type : jsTypes) {
+            SiteScan.DivInfo info = sb.scan.divOf(type);
+            if (info != null) jsDivs.add(info);
+        }
+        String pageJsText = jsDivs.isEmpty() ? "" : sb.aggregateDivJs(jsDivs);
+        String pageCssText = cssDivs.isEmpty() ? "" : sb.aggregateDivCss(cssDivs);
         boolean hasPageJs = !pageJsText.isEmpty(), hasPageCss = !pageCssText.isEmpty();
         // 页面文件以页面名命名（<name>.js/.css），与页面 html 同级；INDEX 页特例放 assets/index/
         String pageFileJs, pageFileCss;
@@ -246,7 +254,7 @@ class SitePages {
     // ---- div 渲染 ----
 
     private String renderDivGroup(String parentId, JsonNode group, String pageSrc,
-                                  Set<String> pageTypes, boolean[] hasMd, boolean[] hasCode, boolean[] hasCallout,
+                                  Set<String> pageTypes, Set<String> jsTypes, boolean[] hasMd, boolean[] hasCode, boolean[] hasCallout,
                                   Map<String, String> inheritedMd) {
         if (group == null || !group.isObject()) return "";
         List<Map.Entry<String, JsonNode>> list = new ArrayList<>();
@@ -255,12 +263,12 @@ class SitePages {
         list.sort(Comparator.comparingInt(e -> Integer.parseInt(e.getKey().substring("div-".length()))));
         StringBuilder sb2 = new StringBuilder();
         for (Map.Entry<String, JsonNode> e : list)
-            sb2.append(renderDiv(parentId, e.getKey(), e.getValue(), pageSrc, pageTypes, hasMd, hasCode, hasCallout, inheritedMd));
+            sb2.append(renderDiv(parentId, e.getKey(), e.getValue(), pageSrc, pageTypes, jsTypes, hasMd, hasCode, hasCallout, inheritedMd));
         return sb2.toString();
     }
 
     private String renderDiv(String parentId, String key, JsonNode div, String pageSrc,
-                             Set<String> pageTypes, boolean[] hasMd, boolean[] hasCode, boolean[] hasCallout,
+                             Set<String> pageTypes, Set<String> jsTypes, boolean[] hasMd, boolean[] hasCode, boolean[] hasCallout,
                              Map<String, String> inheritedMd) {
         String id = parentId.isEmpty() ? key : parentId + "-" + key.substring("div-".length());
         String type = div.path("type").asText();
@@ -282,22 +290,10 @@ class SitePages {
         if (type.equals("search")) sb.searchNeeded = true;
         if (type.equals("palette-picker")) sb.themePickerNeeded = true;
         sb2.append(">\n");
-        if (type.equals("shower")) {
-            boolean shared = div.path("params").path("shared").asBoolean(false);
-            if (shared) {
-                // 共享模式：按 dir 分片发射 assets/data/shower/<dir>.json（只发射实际声明的目录），客户端按 data-* 过滤
-                String dir = div.path("params").path("dir").asText("");
-                if (!dir.matches("[a-z0-9/_-]*") || dir.contains("..") || dir.startsWith("/")) {
-                    sb.errors.add(pageSrc + " 的 shower 共享模式 dir 不合法（小写字母数字/_-，禁止 .. 与前导 /）: " + dir);
-                } else {
-                    sb.showerDirs.put(dir, true);
-                }
-            } else {
-                // 内联注入数据（零请求、file:// 预览可用、离线可用）；</script> 防注入转义
-                String j = showerJson(div.get("params"), id).replace("<", "\\u003c");
-                sb2.append("<script type=\"application/json\" class=\"shower-data\">").append(j).append("</script>\n");
-            }
-        }
+        // list：src 决定数据来源与渲染时机（默认构建期静态 HTML，零 JS）
+        boolean[] listClient = {false};
+        String listItems = null;
+        if (type.equals("list")) listItems = listHandle(div, sb2, pageSrc, listClient);
 
         // div 级 md-options：级联覆盖（只覆盖本 div 写出的键，其余继承页面级/父 div）
         Map<String, String> mdOpts = inheritedMd;
@@ -328,21 +324,170 @@ class SitePages {
                 content = MarkdownRenderer.joinResult(mr);   // 无模板：脚注区并入 md-body 末尾
             }
         }
-        String children = renderDivGroup(id, div.get("divs"), pageSrc, pageTypes, hasMd, hasCode, hasCallout, mdOpts);
+        String children = renderDivGroup(id, div.get("divs"), pageSrc, pageTypes, jsTypes, hasMd, hasCode, hasCallout, mdOpts);
 
         if (hasTemplate) {
             String t = sb.readFile(info.template);
+            boolean tplHasItems = t.contains("{{items}}");
+            if (tplHasItems) t = t.replace("{{items}}", listItems == null ? "" : listItems);   // list 模板通道（客户端来源时先留空，由预设函数填充）
             sb2.append(injectTemplate(t, div.get("params"), content, children, footnotes, pageSrc, type)).append('\n');
             if (!t.contains("{{content}}") && content != null) sb2.append(content).append('\n');
             if (!t.contains("{{footnotes}}") && !footnotes.isEmpty()) sb2.append(footnotes).append('\n');
             if (!t.contains("{{children}}") && !children.isEmpty()) sb2.append(children);
+            if (listItems != null && !tplHasItems) sb2.append(listItems).append('\n');   // 模板未写 {{items}} → 兜底追加
         } else {
             if (content != null) sb2.append(content).append('\n');
+            if (listItems != null) sb2.append(listItems).append('\n');
             sb2.append(children);
         }
         sb2.append("</div>\n");
-        if (info != null && !info.global && !info.adds) pageTypes.add(type);
+        if (info != null && !info.global && !info.adds) {
+            pageTypes.add(type);
+            boolean needsJs = !"list".equals(type) || listClient[0];   // list 的构建期来源只要 css（零 JS）
+            if (needsJs) jsTypes.add(type);
+        }
         return sb2.toString();
+    }
+
+    // ==================== list 组件（src 决定数据来源与渲染时机） ====================
+
+    /** 处理 list div。返回构建期渲染的条目 HTML（build:* 来源），客户端来源返回 null。
+     *  src：build:page-index（默认，构建期静态 HTML、零 JS）| ssvul:inline | ssvul:shared | 作者函数名（裸名）。 */
+    private String listHandle(JsonNode div, StringBuilder out, String pageSrc, boolean[] clientSide) {
+        JsonNode params = div.get("params");
+        String src = params != null ? params.path("src").asText("") : "";
+        String raw = src.isEmpty() ? "build:page-index" : src;              // 不写 src → 构建期静态列表
+        String fields = params != null ? params.path("fields").asText("date,title,excerpt") : "date,title,excerpt";
+        String dir = params != null ? params.path("dir").asText("") : "";
+        String pattern = params != null ? params.path("pattern").asText("*") : "*";
+        if (raw.startsWith("build:")) {
+            String preset = raw.substring("build:".length());
+            if (!preset.equals("page-index")) {
+                sb.errors.add(pageSrc + " 的 list src 未知的构建期预设: " + raw + "（当前可用: build:page-index）");
+                return null;
+            }
+            return listItemsHtml(listEntries(dir, pattern, true), fields,
+                    params != null ? params.path("empty").asText("") : "");
+        }
+        if (raw.startsWith("ssvul:")) {
+            String preset = raw.substring("ssvul:".length());
+            if (preset.equals("inline")) {
+                // 构建期把条目内联进页面（零请求、file:// 可用、离线可用）；</script> 防注入转义
+                String json = listJson(listEntries(dir, pattern, true)).replace("<", "\\u003c");
+                out.append("<script type=\"application/json\" class=\"list-data\">").append(json).append("</script>\n");
+            } else if (preset.equals("shared")) {
+                if (!dir.matches("[a-z0-9/_-]*") || dir.contains("..") || dir.startsWith("/")) {
+                    sb.errors.add(pageSrc + " 的 list ssvul:shared dir 不合法（小写字母数字/_-，禁止 .. 与前导 /）: " + dir);
+                } else {
+                    sb.listDirs.put(dir, true);
+                }
+            } else {
+                sb.errors.add(pageSrc + " 的 list src 未知的官方预设: " + raw + "（当前可用: ssvul:inline / ssvul:shared）");
+                return null;
+            }
+            clientSide[0] = true;
+            String asset = "list/" + preset + ".js";
+            if (!sb.listAssets.contains(asset)) sb.listAssets.add(asset);
+            return null;
+        }
+        clientSide[0] = true;   // 作者自己的函数：构建期只写 data-src，js 由作者引入
+        return null;
+    }
+
+    /** list 条目：dir/pattern 过滤 → 日期倒序（同日按标题码点序，无日期最后）→ 可选排除列表页自身。
+     *  过滤/排序只有这一份实现（客户端不再排序，故两侧算法无需对齐）。 */
+    private List<Map<String, String>> listEntries(String dir, String pattern, boolean excludeSelf) {
+        String pfx = dir == null || dir.isEmpty() ? "" : dir + "/";
+        List<Map<String, String>> entries = new ArrayList<>();
+        for (Map<String, String> e : sb.pageIndex) {
+            String link = e.getOrDefault("link", "");
+            if (link.isEmpty()) continue;                                    // INDEX（站点根）
+            if (!pfx.isEmpty() && !link.startsWith(pfx)) continue;
+            String t = e.getOrDefault("type", "");
+            if ("*.md".equals(pattern) && !t.equals("md")) continue;
+            if ("*.json".equals(pattern) && !t.equals("json")) continue;
+            entries.add(e);
+        }
+        entries.sort(Comparator
+                .comparing((Map<String, String> e) -> e.getOrDefault("date", ""), Comparator.reverseOrder())
+                .thenComparing(e -> e.getOrDefault("title", "")));
+        if (excludeSelf && sb.currentPageLink != null && !sb.currentPageLink.isEmpty())
+            entries.removeIf(e -> sb.currentPageLink.equals(e.getOrDefault("link", "")));
+        return entries;
+    }
+
+    /** 条目 HTML：**构建期渲染与客户端预设必须产出同一套标记**（不变量；客户端对应 SsvulList.item）。
+     *  emptyText 是"内置对接函数"自己的约定参数（0 条时显示），不是 list 组件的参数。 */
+    private String listItemsHtml(List<Map<String, String>> entries, String fields, String emptyText) {
+        String on = "," + (fields == null || fields.isBlank() ? "date,title,excerpt" : fields) + ",";
+        StringBuilder out = new StringBuilder();
+        if (entries.isEmpty() && emptyText != null && !emptyText.isBlank()) {
+            return "<li class=\"list-empty\">" + MarkdownRenderer.escapeHtml(emptyText) + "</li>\n";
+        }
+        for (Map<String, String> e : entries) {
+            out.append("<li class=\"list-item\">\n");
+            String date = e.getOrDefault("date", "");
+            if (on.contains(",date,") && !date.isEmpty())
+                out.append("<span class=\"list-date\">").append(MarkdownRenderer.escapeHtml(date)).append("</span>\n");
+            if (on.contains(",title,")) {
+                String title = e.getOrDefault("title", "");
+                if (title.isEmpty()) title = e.getOrDefault("link", "");
+                out.append("<a class=\"list-title\" href=\"@page/").append(pageRef(e.getOrDefault("link", ""))).append("\">")
+                   .append(MarkdownRenderer.escapeHtml(title)).append("</a>\n");
+            }
+            String tags = e.getOrDefault("tags", "");
+            if (on.contains(",tags,") && !tags.isEmpty()) {
+                out.append("<span class=\"list-tags\">");
+                for (String t : tags.split(",")) if (!t.isBlank())
+                    out.append("<span class=\"list-tag\">").append(MarkdownRenderer.escapeHtml(t.trim())).append("</span>");
+                out.append("</span>\n");
+            }
+            String ex = e.getOrDefault("excerpt", "");
+            if (on.contains(",excerpt,") && !ex.isEmpty())
+                out.append("<p class=\"list-excerpt\">").append(MarkdownRenderer.escapeHtml(ex)).append("</p>\n");
+            out.append("</li>\n");
+        }
+        return out.toString();
+    }
+
+    /** 索引 link（pages/blog/post/）→ @page 引用（blog/post）：替换趟补深度前缀并校验目标存在 */
+    private static String pageRef(String link) {
+        String s = link;
+        if (s.startsWith("pages/")) s = s.substring("pages/".length());
+        if (s.endsWith("/")) s = s.substring(0, s.length() - 1);
+        return s;
+    }
+
+    /** 条目 JSON（内联与分片同形）：只带展示需要的字段，**不含 text 全文** */
+    private String listJson(List<Map<String, String>> entries) {
+        List<Map<String, String>> out = new ArrayList<>();
+        for (Map<String, String> e : entries) {
+            Map<String, String> m = new LinkedHashMap<>();
+            m.put("link", e.getOrDefault("link", ""));
+            m.put("type", e.getOrDefault("type", ""));
+            m.put("title", e.getOrDefault("title", ""));
+            m.put("date", e.getOrDefault("date", ""));
+            m.put("excerpt", e.getOrDefault("excerpt", ""));
+            m.put("tags", e.getOrDefault("tags", ""));
+            out.add(m);
+        }
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(out);
+        } catch (Exception e) {
+            sb.errors.add("list 数据序列化失败: " + e.getMessage());
+            return "[]";
+        }
+    }
+
+    /** ssvul:shared 分片：每个声明的 dir 一份（assets/data/list/<dir>.json，dir 空 → index.json）。
+     *  条目已按约定排好序（客户端不再排序）；不含 text 全文。 */
+    void emitListShards() {
+        if (sb.listDirs.isEmpty()) return;
+        for (String dir : sb.listDirs.keySet()) {
+            String name = dir.isEmpty() ? "index.json" : dir + ".json";
+            String json = listJson(listEntries(dir, "*", false));
+            sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/data/list/" + name), json, 3));
+        }
     }
 
     private void registerOutput(String out) {
@@ -413,7 +558,7 @@ class SitePages {
     }
 
 
-    // ==================== search/shower 数据 ====================
+    // ==================== search / list 数据 ====================
 
     void emitSearchIndex() {
         if (!sb.searchNeeded) return;
@@ -425,80 +570,4 @@ class SitePages {
         }
     }
 
-    /** 共享 shower 索引：只发射 shared:true 实际声明的目录，每个 dir 一份分片（assets/data/shower/<dir>.json，dir 空 → index.json）。
-     *  去 text 全文的精简条目；pattern/order/count 仍由客户端按 data-* 过滤/排序/截断。 */
-    void emitShowerIndexes() {
-        if (sb.showerDirs.isEmpty()) return;
-        for (String dir : sb.showerDirs.keySet()) {
-            String pfx = dir.isEmpty() ? "" : dir + "/";
-            List<Map<String, String>> entries = new ArrayList<>();
-            for (Map<String, String> e : sb.pageIndex) {
-                String link = e.get("link");
-                if (!pfx.isEmpty() && !(link.equals(pfx) || link.startsWith(pfx))) continue;
-                Map<String, String> m = new LinkedHashMap<>();
-                m.put("link", link);
-                m.put("type", e.getOrDefault("type", ""));
-                m.put("title", e.getOrDefault("title", ""));
-                m.put("date", e.getOrDefault("date", ""));
-                m.put("excerpt", e.getOrDefault("excerpt", ""));
-                m.put("tags", e.getOrDefault("tags", ""));
-                entries.add(m);
-            }
-            String name = dir.isEmpty() ? "index.json" : dir + ".json";
-            try {
-                String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(entries);
-                sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "assets/data/shower/" + name), json, 3));
-            } catch (Exception e) {
-                sb.errors.add("shower 共享索引序列化失败（dir=" + dir + "）: " + e.getMessage());
-            }
-        }
-    }
-
-    /** shower 数据：dir/pattern 过滤 pageIndex → order 排序（random 用 seed）→ count 截断 → 总文件 */
-    private String showerJson(JsonNode params, String id) {
-        String dir = params != null ? params.path("dir").asText("") : "";
-        String pattern = params != null ? params.path("pattern").asText("*.md") : "*.md";
-        int count = params != null ? params.path("count").asInt(5) : 5;
-        String order = params != null ? params.path("order").asText("date") : "date";
-        long seed = params != null ? params.path("seed").asLong(-1) : -1;
-        String fields = params != null ? params.path("fields").asText("title,date,excerpt") : "title,date,excerpt";
-        boolean manual = params != null && params.path("manual").asBoolean(false);
-        List<Map<String, String>> entries = new ArrayList<>();
-        for (Map<String, String> e : sb.pageIndex) {
-            String link = e.get("link");
-            String pfx = dir.isEmpty() ? "" : dir + "/";   // dir 形如 pages/blog（已含 pages/ 前缀）
-            if (!pfx.isEmpty() && !(link.equals(pfx) || link.startsWith(pfx))) continue;
-            if (pattern.equals("*.md") && !"md".equals(e.get("type"))) continue;
-            if (pattern.equals("*.json") && !"json".equals(e.get("type"))) continue;
-            entries.add(e);
-        }
-        int total = entries.size();
-        switch (order) {
-            case "name" -> entries.sort(Comparator.comparing(e -> e.get("title")));
-            case "random" -> Collections.shuffle(entries, new java.util.Random(seed < 0 ? System.nanoTime() : seed));
-            default -> entries.sort(Comparator.comparing(e -> e.get("date"), Comparator.reverseOrder()));
-        }
-        if (entries.size() > count) entries = new ArrayList<>(entries.subList(0, count));
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("version", 1);
-        data.put("id", id);
-        data.put("total", total);
-        data.put("manual", manual);
-        // 键序必须固定：Map.of 的迭代顺序随 JVM（ImmutableCollections SALT）变 → 同源构建字节不同，
-        // 会让 ⑧ 的内嵌哈希/immutable 缓存/build-manifest 失去意义
-        Map<String, Object> paramsOut = new LinkedHashMap<>();
-        paramsOut.put("dir", dir);
-        paramsOut.put("pattern", pattern);
-        paramsOut.put("count", count);
-        paramsOut.put("order", order);
-        paramsOut.put("fields", fields);
-        data.put("params", paramsOut);
-        data.put("entries", entries);
-        try {
-            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(data);
-        } catch (Exception e) {
-            sb.errors.add("shower 数据序列化失败: " + e.getMessage());
-            return "{}";
-        }
-    }
 }

@@ -282,9 +282,9 @@ class SiteScan {
     void scanData() {
         File root = new File(sb.setsDir, "data");
         if (!root.isDirectory()) return;
-        // shower 为生成器保留目录（shared 共享索引输出 assets/data/shower/），避免与用户数据碰撞
-        if (new File(root, "shower").isDirectory())
-            sb.errors.add("sets/data/shower 为生成器保留目录（shower 共享索引输出），请改名");
+        // list 为生成器保留目录（ssvul:shared 分片输出 assets/data/list/），避免与用户数据碰撞
+        if (new File(root, "list").isDirectory())
+            sb.errors.add("sets/data/list 为生成器保留目录（list 的 ssvul:shared 分片输出），请改名");
         scanDataDir(root, "");
     }
 
@@ -380,43 +380,59 @@ class SiteScan {
     }
 
 
-    // ==================== 页面索引（search/shower 数据源；渲染前预收集） ====================
+    // ==================== 页面索引（search/list 数据源；渲染前预收集） ====================
 
     void collectPageIndex() {
         for (Page p : sb.pages) {
-            Map<String, String> e = new LinkedHashMap<>();
-            e.put("link", p.index ? "" : "pages/" + p.rel + p.name + "/");
-            e.put("date", ymd(p.file.lastModified()));
+            String link, type, title, excerpt, text = "", tags = "";
             if (p.bareMd) {
                 String md = sb.readFile(p.file);
-                e.put("type", "md");
-                e.put("title", firstHeading(md, p.name));
-                e.put("excerpt", firstParagraph(md));
-                e.put("text", md);
-                e.put("tags", "");
-                sb.pageIndex.add(e);
-                continue;
+                link = "pages/" + p.rel + p.name + "/";
+                type = "md";
+                title = cleanInline(firstHeading(md, p.name));
+                excerpt = cleanInline(firstParagraph(md));
+                text = md;
+            } else {
+                try {
+                    com.fasterxml.jackson.databind.JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(p.file);
+                    String name = root.path("name").asText("");
+                    if (name.isEmpty()) name = p.name;
+                    // link 必须用 json 的 name（输出路径由它决定）：曾用文件名拼 → name≠文件名 时列表/搜索链到 404
+                    link = p.index ? "" : "pages/" + p.rel + name + "/";
+                    type = "json";
+                    title = cleanInline(root.path("title").asText(name));
+                    excerpt = cleanInline(root.path("description").asText(""));
+                    StringBuilder tg = new StringBuilder();
+                    com.fasterxml.jackson.databind.JsonNode t = root.path("tags");
+                    if (t.isArray()) for (com.fasterxml.jackson.databind.JsonNode x : t) { if (tg.length() > 0) tg.append(','); tg.append(x.asText()); }
+                    tags = tg.toString();
+                    StringBuilder full = new StringBuilder();
+                    collectMd(root.path("page"), full);
+                    text = full.toString();
+                    if (excerpt.isEmpty() && !text.isEmpty()) excerpt = cleanInline(excerptOf(text));
+                } catch (Exception ex) {
+                    continue;   // 解析失败留给 buildJsonPage 的严格校验报错；索引跳过该页
+                }
             }
-            try {
-                com.fasterxml.jackson.databind.JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(p.file);
-                String name = root.path("name").asText("");
-                if (name.isEmpty()) name = p.name;
-                e.put("type", "json");
-                e.put("title", root.path("title").asText(name));
-                e.put("excerpt", root.path("description").asText(""));
-                StringBuilder tags = new StringBuilder();
-                com.fasterxml.jackson.databind.JsonNode t = root.path("tags");
-                if (t.isArray()) for (com.fasterxml.jackson.databind.JsonNode x : t) { if (tags.length() > 0) tags.append(','); tags.append(x.asText()); }
-                e.put("tags", tags.toString());
-                StringBuilder text = new StringBuilder();
-                collectMd(root.path("page"), text);
-                e.put("text", text.toString());
-                if (e.get("excerpt").isEmpty() && text.length() > 0) e.put("excerpt", excerptOf(text.toString()));
-                sb.pageIndex.add(e);
-            } catch (Exception ex) {
-                // 解析失败留给 buildJsonPage 的严格校验报错；索引跳过该页
-            }
+            Map<String, String> e = new LinkedHashMap<>();
+            e.put("link", link);
+            e.put("date", ymd(p.file.lastModified()));
+            e.put("type", type);
+            e.put("title", title);
+            e.put("excerpt", excerpt);
+            e.put("text", text);
+            e.put("tags", tags);
+            sb.pageIndex.add(e);
         }
+    }
+
+    /** 条目文本净化：去图片、链接留文字、去行内标记（列表与搜索摘要共用；构建期条目即客户端条目） */
+    static String cleanInline(String s) {
+        if (s == null || s.isEmpty()) return "";
+        String t = s.replaceAll("!\\[[^\\]]*\\]\\([^)]*\\)", "");   // 图片整段去掉
+        t = t.replaceAll("\\[([^\\]]*)\\]\\([^)]*\\)", "$1");      // 链接留文字
+        t = t.replaceAll("\\*{1,3}|_{1,2}|~~|`", "");              // 粗/斜/删除/行内码标记
+        return t.trim();
     }
 
     private void collectMd(com.fasterxml.jackson.databind.JsonNode node, StringBuilder out) {

@@ -68,9 +68,11 @@ public class SiteBuilder {
     String injectCalloutVariant;                                     // 每页：命中的语言变体文件名（null → 用 CALLOUT.css）
     boolean hasCode, copyJsNeeded, injectCodeuiCss, injectCodeuiJs;   // 每页：hasCode 门控 + 注入标记
     final Set<String> pageGlobalRefs = new LinkedHashSet<>();        // 每页 global: 引用（父子双引用警告）
-    final List<Map<String, String>> pageIndex = new ArrayList<>();  // 页面索引（search/shower 数据源）：link/title/date/excerpt/text/tags
+    final List<Map<String, String>> pageIndex = new ArrayList<>();  // 页面索引（search/list 数据源）：link/title/date/excerpt/text/tags
     boolean searchNeeded;                                           // 任页用到 search div → 输出 search-index.json
-    final Map<String, Boolean> showerDirs = new LinkedHashMap<>();  // shower shared:true 声明的 dir 集合（按目录分片发射共享索引）
+    final Map<String, Boolean> listDirs = new LinkedHashMap<>();    // list 的 ssvul:shared 声明的 dir 集合（按目录分片发射）
+    String currentPageLink;                                         // 当前页输出链接（list 构建期渲染时排除自己）
+    final List<String> listAssets = new ArrayList<>();              // 本页要注入的 list 预设 js（pre-assets 相对路径）
     boolean themePickerNeeded;                                        // 页含 palette-picker → 链接全部内置主题 css
     int currentPageDepth;                                           // 当前页深度（data-depth 属性注入）
     int minifyLevel = 2;                                       // -1 去重+注释保留 | 0 全关 | 1 去重不压缩 | 2 全开（默认）
@@ -112,14 +114,14 @@ public class SiteBuilder {
         scan.scanFavicon();
         scan.scanOuter();
         scan.scanGlobal();
-        scan.collectPageIndex();   // 预收集页面元数据（search/shower 数据源；渲染前可用）
+        scan.collectPageIndex();   // 预收集页面元数据（search/list 数据源；渲染前可用）
         // 重排 B：先渲染页面（divOf 惰性解析继承链），后生成全局聚合，再回填占位符
         for (SiteScan.Page p : pages) {
             if (p.bareMd) pagesBuilder.buildBareMd(p); else pagesBuilder.buildJsonPage(p);
         }
         pagesBuilder.buildGlobals();
         pagesBuilder.emitSearchIndex();
-        pagesBuilder.emitShowerIndexes();
+        pagesBuilder.emitListShards();
         backfillGlobals();
         for (String w : warnings) IO.println("[构建警告] " + w);
         if (!errors.isEmpty()) throw new RuntimeException(joinErrors());

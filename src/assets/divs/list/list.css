@@ -1,0 +1,24 @@
+/* SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan */
+/* list 列表样式（类名与构建期渲染一致：.list-item/.list-date/.list-title/.list-tags/.list-tag/.list-excerpt） */
+.ssvul-list .list-items { list-style: none; padding: 0; margin: 0; }
+.ssvul-list .list-item { padding: .5em 0; border-bottom: 1px solid #e3e7ee; }
+.ssvul-list .list-item:last-child { border-bottom: none; }
+.ssvul-list .list-date { font-size: .85em; color: #8a93a0; margin-right: .5em; }
+.ssvul-list .list-title { font-weight: 600; text-decoration: none; }
+.ssvul-list .list-tags { margin-left: .5em; }
+.ssvul-list .list-tag { display: inline-block; font-size: .78em; padding: 0 .45em; margin-right: .3em;
+  border-radius: 999px; background: #eef1f6; color: #5a636e; }
+.ssvul-list .list-excerpt { margin: .2em 0 0; font-size: .9em; color: #5a636e; }
+.ssvul-list .list-error { color: #c0392b; font-size: .9em; }
+.ssvul-list .list-empty { color: #8a93a0; }
+[data-theme="dark"] .ssvul-list .list-item { border-bottom-color: #3a4258; }
+[data-theme="dark"] .ssvul-list .list-date { color: #9aa4b2; }
+[data-theme="dark"] .ssvul-list .list-tag { background: #262d3d; color: #c9d2de; }
+[data-theme="dark"] .ssvul-list .list-excerpt { color: #c9d2de; }
+[data-theme="sepia"] .ssvul-list .list-item { border-bottom-color: #d8cba8; }
+[data-theme="sepia"] .ssvul-list .list-tag { background: #efe5cd; color: #6e6350; }
+[data-theme="sepia"] .ssvul-list .list-excerpt { color: #6e6350; }
+[data-theme="green"] .ssvul-list .list-item { border-bottom-color: #1f3a1f; }
+[data-theme="green"] .ssvul-list .list-date { color: #7fa87f; }
+[data-theme="green"] .ssvul-list .list-tag { background: #162a16; color: #9fc89f; }
+[data-theme="green"] .ssvul-list .list-excerpt { color: #9fc89f; }

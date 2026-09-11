@@ -1,0 +1,10 @@
+<!-- SsvulExtWebCreator · https://github.com/Endingratitan/SsvulExtWebCreator | MPL-2.0: redistributed with this notice and LICENSE/NOTICE | Copyright (c) 2026 Endingratitan -->
+<!-- list：数据来源与渲染时机由 params.src 决定（不写 = build:page-index，构建期直接出静态 HTML、零 JS）。
+       src 的三种写法：
+         build:page-index   构建期执行：dir/pattern 命中的全部页面，日期倒序（同日按标题），直接出条目
+         ssvul:inline       构建期把条目内联进页面 + 客户端预设渲染（零请求、file:// 可用）
+         ssvul:shared       构建期按目录发射分片 + 客户端预设 fetch（多页共用一份字节）
+         <你的函数名>        构建期只写 data-src；函数由你自己引入，形如 function (root, params) { return {items:[…]} }
+       条目占位符 = items（构建期来源由构建期填充；客户端来源由预设/你的函数填充）
+       params：src / dir / pattern / fields（含义由对接函数解释；其余键原样透传） -->
+<ul class="list-items">{{items}}</ul>

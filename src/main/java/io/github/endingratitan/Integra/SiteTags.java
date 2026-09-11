@@ -127,6 +127,12 @@ class SiteTags {
                 sb.errors.add("engine 自动资源形态不合法: " + a);
             }
         }
+        // list 预设函数（ssvul:inline / ssvul:shared 等）：按名解析后按需复制到 assets/pre/list/ 并注入
+        for (String a : sb.listAssets) {
+            sb.refPreset(a);
+            sb2.append("  <script src=\"").append(SiteBuilder.depthPrefix(depth)).append("assets/pre/")
+               .append(a).append("\"></script>\n");
+        }
         // copy-btn 内置行为预设（仅 code-ui items 含 copy-btn 且本页有代码块）
         if (sb.copyJsNeeded) {
             sb.refPreset("md/js/md-copy.js");

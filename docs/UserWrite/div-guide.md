@@ -52,7 +52,7 @@ window.SsvulDiv.register('家族名', {
 
 - **覆写（继承场景）**：子 div 用同名 register——Object.assign 合并、子键覆盖父键。
 - **子调父**：`var parent = window.SsvulDiv.super('家族名', 'init'); if (parent) parent(doc, root);`
-- **完全让位**：`register('家族名', null)` 清除钩子；或模板/组件声明 manual 模式（如 shower 的 `manual:true`）。
+- **完全让位**：`register('家族名', null)` 清除钩子；或模板/组件声明自己的接管方式（如 list 的 `src` 指向你自己的函数）。
 - **家族注册名 = 基类名**：navbar/topbar 都注册 `'bar'`——继承链上的覆写才能正确链接。
 - **声明式覆写**（不推荐但可用）：`function f(){}`/`var x = …` 同名重声明——串联后后者胜（构建期还会自动清除父的同名函数实现 = "覆写即替换"）。
 - **禁止**：`let/const/class` 同名重声明（串联后 SyntaxError，构建期直接报错）。
@@ -92,7 +92,7 @@ window.SsvulDiv.register('家族名', {
 |---|---|---|
 | bar / navbar / topbar | brand | 导航家族（家族名=bar）：bar 基类汉堡响应式 ← navbar ← topbar sticky+滚动阴影 |
 | search | placeholder、limit | 站内搜索（构建期 search-index.json，按 data-depth 取路径；fetch 依赖 http(s)，file:// 直开不可用） |
-| shower | dir、pattern(*.md/*.json)、count、order(date/name/random)、seed、fields、manual、shared | 数据列表：内联 data-json（零请求/file:// 可用）；shared:true 改按目录分片共享索引 assets/data/shower/<dir>.json（dir 空 → index.json；只发射声明的目录；客户端过滤 pattern/order/count；fetch 依赖 http(s)）；window.SsvulShower 三钩子可覆写；manual 完全让位 |
+| list | src、dir、pattern、fields | 列表：`src` 决定来源与渲染时机（不写 = 构建期静态、零 JS；`ssvul:inline`/`ssvul:shared` 用官方预设；裸函数名 = 你自己的外接函数，返回 `{items:[…]}`）。**过滤/排序只有构建期一份实现**：构建期来源按日期倒序（同日按标题码点序），客户端来源不做任何排序——要"最近 N 篇/按标签/随机"就写自己的对接函数 |
 | breadcrumb | root-label、separator | 路径面包屑 |
 | backtotop | threshold | 回到顶部 |
 | pager | current、total、base | 分页 |

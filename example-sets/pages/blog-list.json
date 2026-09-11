@@ -1,0 +1,15 @@
+{
+  "name": "blog-list",
+  "title": "博客列表（零 JS 静态）",
+  "theme": "light",
+  "description": "list 组件默认来源 build:page-index：构建期直接输出条目，本页不注入任何 js（零 JS、SEO 友好）",
+  "page": {
+    "div-1": { "type": "topbar", "params": { "brand": "Ssvul" } },
+    "div-2": { "type": "article", "params": { "title": "博客列表（构建期静态，零 JS）" },
+      "markdown": "这一页用 `list` 的**默认来源** `build:page-index`：不写 `src` 时，构建期把 `dir`/`pattern` 命中的页面全部列出来，**日期倒序**（同一天按标题码点序），直接产出 HTML。\n\n- 本页**不注入** `list` 的 js——零 JS、SEO 与 `file://` 都友好\n- 过滤/排序只有构建期一份实现（客户端不参与排序）\n- 列表会**自动排除自己**（下面第二个列表覆盖 `pages/*.json`，不会把本页列进去）\n- 摘要里的行内标记（`**粗**`、链接、图片）在构建期已净化成纯文本\n" },
+    "div-3": { "type": "list", "params": { "dir": "pages", "pattern": "*.md", "fields": "date,title,excerpt,tags", "empty": "还没有内容" } },
+    "div-4": { "type": "article", "params": { "title": "只列 json 页面（少字段 + 自我排除）" },
+      "markdown": "`pattern: *.json` + `fields: date,title`：只显示日期与标题。" },
+    "div-5": { "type": "list", "params": { "dir": "pages", "pattern": "*.json", "fields": "date,title" } }
+  }
+}

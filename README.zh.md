@@ -75,7 +75,7 @@ div下可有JS、CSS文件与template.html模板，不能有图片、json等数�
 |---|---|---|
 | bar / navbar / topbar | brand | 导航家族：基类 bar（汉堡响应式）← navbar ← topbar（sticky+滚动阴影）；家族注册名=bar |
 | search | placeholder、limit | 站内静态搜索（构建期生成 assets/data/search-index.json，路径按 div 的 data-depth 解析） |
-| shower | dir、pattern(*.md/*.json)、count、order(date/name/random)、seed、fields、manual、shared | 数据驱动列表：默认内联 data-json（零请求、file:// 可用）；`shared:true` 改按目录分片共享索引 `assets/data/shower/<dir>.json`（dir 空 → index.json；只发射声明的目录，同目录多 shower 共用一份字节，客户端过滤 pattern/order/count；fetch 依赖 http(s)）；window.SsvulShower 三钩子可覆写 |
+| list | src、dir、pattern、fields（其余键原样透传给对接函数） | 列表组件：**数据来源与渲染时机全由 `src` 决定**——不写 = `build:page-index`（构建期直接出静态条目、**零 JS**）；`ssvul:inline`（构建期内联 + 客户端预设渲染，零请求/file:// 可用）；`ssvul:shared`（按目录分片 `assets/data/list/<dir>.json`，多页共用一份字节，fetch 依赖 http(s)）；`<你的函数名>`（构建期只写 `data-src`，由你的外接函数返回 `{items:[…]}`，用于"只上传文件不重建"） |
 | breadcrumb | root-label、separator | 按 URL 路径生成面包屑（纯客户端） |
 | backtotop | threshold | 回到顶部按钮 |
 | pager | current、total、base | 分页导航 |
@@ -119,7 +119,7 @@ output/pages
 其他目录结构自定，将会完整复制到output/assets/data下
 建议存储json、md、图片等；禁止js/css（生成时扫描报错）
 用于被其他引用（md 中经 @data/... 引用）
-生成器保留名：`shower/` 目录（shared shower 共享索引输出，sets/data 下占名报错）；`search-index.json` 同样由生成器输出，勿同名占位
+生成器保留名：`list/` 目录（list 的 `ssvul:shared` 分片输出，sets/data 下占名报错）；`search-index.json` 同样由生成器输出，勿同名占位
 #### outer/
 作为bucket的本地复制，
 下面有若干以调用名命名的子目录（如 outer/bk/），其内容与对应云端结构一模一样
