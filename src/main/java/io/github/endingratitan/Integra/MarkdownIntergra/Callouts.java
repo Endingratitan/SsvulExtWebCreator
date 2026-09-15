@@ -46,8 +46,10 @@ final class Callouts {
     private Callouts() {}
 
     /** 类型名是否合法（kebab-case；调用方已转小写） */
+    private static final java.util.regex.Pattern KEBAB = java.util.regex.Pattern.compile("[a-z0-9]+(-[a-z0-9]+)*");
+
     static boolean kebab(String type) {
-        return type != null && type.matches("[a-z0-9]+(-[a-z0-9]+)*");
+        return type != null && KEBAB.matcher(type).matches();
     }
 
     static boolean known(String type) { return BUILTIN.containsKey(type); }

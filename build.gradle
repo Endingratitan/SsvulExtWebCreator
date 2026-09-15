@@ -4,14 +4,16 @@ plugins {
 }
 
 group = 'io.github.endingratitan.SsvulExtWebCreator'
-version = '0.3.2'
+version = '0.3.4'
 
 application {
     mainClass = 'io.github.endingratitan.SsvulExtWebCreator.Main'
 }
 
 // 构建版本注入 ssvul-version.txt（version 子命令读取；jar/action/tag 三处同版本）
+// page.schema.json 从仓库根复制进资源（R11：运行时 classpath 优先，jar 到哪都能校验）
 processResources {
+    from('page.schema.json') { into '' }
     doLast {
         def vf = new File(destinationDirectory.get().asFile, 'ssvul-version.txt')
         vf.text = version

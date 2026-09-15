@@ -16,6 +16,9 @@ class MdInline {
 
     private static final String PUNCT = "\\`*_{}[]()#+-.!|~><$";
 
+    /** 名字/ 形态（潜在 bucket 引用）——每次链接都要判，预编译 */
+    private static final java.util.regex.Pattern PREFIX_REF = java.util.regex.Pattern.compile("[A-Za-z0-9_-]+/.*");
+
     private final MarkdownRenderer owner;
     private final MdFootnotes fn;
 
@@ -168,12 +171,12 @@ class MdInline {
                 int close = s.indexOf(']', i + 2);
                 if (close > i + 2) {
                     String label = s.substring(i + 2, close);
-                    if (!owner.inFootDef && (label.equals(".") || (label.matches("\\d+") && !label.startsWith("0")))) {
+                    if (!owner.inFootDef && (label.equals(".") || (allAsciiDigits(label) && !label.startsWith("0")))) {
                         fn.registerRef(label, lineNo, out);
                         i = close + 1;
                         continue;
                     }
-                    if (!owner.inFootDef && (label.equals("0") || label.matches("\\d+"))) {
+                    if (!owner.inFootDef && (label.equals("0") || allAsciiDigits(label))) {
                         owner.error(lineNo, "脚注编号必须为正整数: [^" + label + "]", null, label);
                     }
                     // 定义内容内或其他标签 → 字面，落入普通处理
@@ -201,6 +204,16 @@ class MdInline {
         return out.toString();
     }
 
+    /** 全为 ASCII 数字（等价 matches("\\d+")：Java 的 \\d 默认不含 Unicode 数字） */
+    private static boolean allAsciiDigits(String s) {
+        if (s.isEmpty()) return false;
+        for (int k = 0; k < s.length(); k++) {
+            char c = s.charAt(k);
+            if (c < '0' || c > '9') return false;
+        }
+        return true;
+    }
+
     private boolean checkUrl(String url, int lineNo, String kind) {
         if (url.isEmpty() || url.contains(" ") || url.contains("\t")) {
             owner.error(lineNo, kind + " URL 不能为空或含空白", null, url);
@@ -219,7 +232,7 @@ class MdInline {
         return u.startsWith("http://") || u.startsWith("https://")
                 || u.startsWith("pre-assets/") || u.startsWith("@data/")
                 || u.startsWith("@page/") || u.startsWith("#")
-                || u.matches("^[A-Za-z0-9_-]+/.*");
+                || PREFIX_REF.matcher(u).matches();
     }
 
     // ---- 行内判定 ----

@@ -18,6 +18,7 @@ import com.networknt.schema.ValidationMessage;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.*;
 
 public class AssetsConfigReader {
@@ -38,8 +39,73 @@ public class AssetsConfigReader {
     /** bucket 第 3 段起允许的属性键（键=值；未知键报错） */
     private static final Set<String> BUCKET_ATTR_KEYS = Set.of("endpoint", "prefix", "ref");
 
-    public AssetsConfigReader(File configFile) {
+    // ---- 页面 schema：进程级共享与缓存（P1）----
+
+    /** 进程级共享（只读用法，线程安全）：带"重复键即报错"的 mapper + 校验器工厂 */
+    private static final ObjectMapper MAPPER = new ObjectMapper()
+            .configure(JsonParser.Feature.STRICT_DUPLICATE_DETECTION, true);
+    private static final JsonSchemaFactory FACTORY = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V7);
+
+    /** schema 缓存：键 = **schema 文件内容的 SHA-256**（不是 mtime——同秒同长的改写也能失效）；每进程编译一次 */
+    private static String schemaKey;
+    private static JsonSchema schemaCache;
+
+    /**
+     * R11：schema 定位 —— **classpath `/page.schema.json` 优先**（jar 内 / build/classes-res），
+     * 工作目录文件兜底（手工编译、仓库根直跑）。两边都没有 → 教学式报错。
+     */
+    private static byte[] loadSchemaBytes() {
+        try (InputStream in = AssetsConfigReader.class.getResourceAsStream("/page.schema.json")) {
+            if (in != null) return in.readAllBytes();
+        } catch (IOException ignored) {
+            // 落到工作目录兜底
+        }
+        File f = new File("page.schema.json");
+        if (f.isFile()) {
+            try {
+                return Files.readAllBytes(f.toPath());
+            } catch (IOException e) {
+                throw new RuntimeException("读取 page.schema.json 失败: " + e.getMessage(), e);
+            }
+        }
+        throw new RuntimeException("找不到 page.schema.json：既不在程序资源 /page.schema.json，也不在工作目录。"
+                + "仓库根有一份真源，构建时由 gradle 复制进 jar（手工编译见 tech.md §12 的 cp 一行）");
+    }
+
+    /** 取（必要时编译）共享 schema；stats 非空时只在**真正编译**时计数 */
+    private static synchronized JsonSchema schema(BuildStats stats) {
+        byte[] bytes = loadSchemaBytes();
+        String key = DepsManifest.sha256(bytes);
+        if (!key.equals(schemaKey)) {
+            try {
+                schemaCache = FACTORY.getSchema(MAPPER.readTree(bytes));
+            } catch (IOException e) {
+                schemaKey = null;   // 失败不留半状态：下次重试
+                throw new RuntimeException("page.schema.json 解析失败: " + e.getMessage(), e);
+            }
+            schemaKey = key;
+            if (stats != null) stats.schemaCompiles++;
+        }
+        return schemaCache;
+    }
+
+    /** 可选的构建统计（M1 起用于性能门禁）；测试与独立使用传 null */
+    private final BuildStats stats;
+
+    /** 预读内容（可为 null）：调用方已读过同一文件时直接给文本，避免重复读盘（P3） */
+    private final String preloaded;
+
+    /** 共享的 JSON mapper（strict 重复键检测）——索引/渲染等处复用，别再 new（P1/P3 同源） */
+    static ObjectMapper jsonMapper() { return MAPPER; }
+
+    public AssetsConfigReader(File configFile) { this(configFile, null, null); }
+
+    public AssetsConfigReader(File configFile, BuildStats stats) { this(configFile, stats, null); }
+
+    public AssetsConfigReader(File configFile, BuildStats stats, String preloaded) {
         this.ConfigFile = configFile;
+        this.stats = stats;
+        this.preloaded = preloaded;
         WebType type = WebType.NULL;
         if (ConfigFile.exists() && ConfigFile.isFile()) {
             type = WebType.checkName(ConfigFile.getName());
@@ -48,7 +114,6 @@ public class AssetsConfigReader {
             throw new RuntimeException("Create ACR Failed!");
         }
         this.Objective = type;
-        IO.println("Creat ACR Success!");
     }
 
     public boolean Read(){
@@ -62,26 +127,19 @@ public class AssetsConfigReader {
     /**
      * 解析并校验页面 json。
      * 重复键必须在解析层报错（JSON Schema 校验发生在解析之后，看不到被覆盖的重复键）。
-     * TODO: page.schema.json 路径目前写死为工作目录下，后续改为随程序定位。
+     * schema 走进程级缓存（P1）：每进程只编译一次，与页面数无关。
      */
     private boolean ReadJSON(){
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.configure(JsonParser.Feature.STRICT_DUPLICATE_DETECTION, true);
+        if (stats != null) stats.jsonParses++;
         JsonNode root;
         try {
-            root = mapper.readTree(ConfigFile);
+            root = preloaded != null ? MAPPER.readTree(preloaded) : MAPPER.readTree(ConfigFile);
         } catch (IOException e) {
             throw new RuntimeException("JSON 解析失败: " + ConfigFile.getName() + " - " + e.getMessage(), e);
         }
-        try {
-            JsonNode schemaNode = mapper.readTree(new File("page.schema.json"));
-            JsonSchema schema = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V7).getSchema(schemaNode);
-            Set<ValidationMessage> errors = schema.validate(root);
-            if (!errors.isEmpty()) {
-                throw new RuntimeException("JSON 校验失败: " + ConfigFile.getName() + " - " + errors);
-            }
-        } catch (IOException e) {
-            throw new RuntimeException("读取 page.schema.json 失败: " + e.getMessage(), e);
+        Set<ValidationMessage> errors = schema(stats).validate(root);
+        if (!errors.isEmpty()) {
+            throw new RuntimeException("JSON 校验失败: " + ConfigFile.getName() + " - " + errors);
         }
         this.jsonRoot = root;
         return true;
@@ -99,7 +157,8 @@ public class AssetsConfigReader {
         bucketMap.clear();
         bucketFields.clear();
         bucketAttrs.clear();
-        try (BufferedReader reader = new BufferedReader(new FileReader(ConfigFile, StandardCharsets.UTF_8))) {
+        try (BufferedReader reader = new BufferedReader(preloaded != null
+                ? new StringReader(preloaded) : new FileReader(ConfigFile, StandardCharsets.UTF_8))) {
             String line;
             int lineNo = 0;
             while ((line = reader.readLine()) != null) {

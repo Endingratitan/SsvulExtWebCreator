@@ -221,14 +221,15 @@ public class MarkdownRendererTest {
 
     @Test
     void codeEngineSwap() {
+        // R10：引擎沿参数传入（不再改静态字段）——同一 JVM 内两种引擎互不影响
         assertTrue(MarkdownRenderer.render("```java\nint x;\n```\n").contains("int x;"));
-        MarkdownRenderer.setCodeEngine((code, lang) -> "<b>" + code + "</b>");
-        try {
-            String swapped = MarkdownRenderer.render("```java\nint x;\n```\n");
-            assertTrue(swapped.contains("<b>int x;</b>"));
-        } finally {
-            MarkdownRenderer.setCodeEngine(new PassThroughCodeEngine());
-        }
+        CodeEngine custom = (code, lang) -> "<b>" + code + "</b>";
+        String swapped = MarkdownRenderer.joinResult(MarkdownRenderer.renderParts(
+                "```java\nint x;\n```\n", "t", Map.of(), "", custom));
+        assertTrue(swapped.contains("<b>int x;</b>"), swapped);
+        // 传参不影响默认：下一次默认渲染仍是纯转义
+        assertTrue(MarkdownRenderer.render("```java\nint x;\n```\n").contains("int x;"));
+        assertFalse(MarkdownRenderer.render("```java\nint x;\n```\n").contains("<b>"));
     }
 
     @Test

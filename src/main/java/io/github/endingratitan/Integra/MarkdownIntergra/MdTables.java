@@ -72,11 +72,13 @@ class MdTables {
         return lines.get(i).trim().contains("|") && isDelimRow(lines.get(i + 1));
     }
 
+    private static final java.util.regex.Pattern DELIM_CELL = java.util.regex.Pattern.compile(":?-+:?");
+
     static boolean isDelimRow(String line) {
         String t = line.trim();
         if (t.isEmpty() || t.indexOf('|') < 0 || t.indexOf('-') < 0) return false;
         for (String cell : tableCells(t)) {
-            if (!cell.trim().matches("^:?-+:?$")) return false;
+            if (!DELIM_CELL.matcher(cell.trim()).matches()) return false;
         }
         return true;
     }

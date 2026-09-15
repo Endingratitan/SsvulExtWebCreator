@@ -85,7 +85,7 @@ class MdBlocks {
     /** 标题：锚点 id 自动编号（h2 起入目录），空标题仅警告（GitHub 容忍） */
     private void renderHeading(StringBuilder out, String t, int level, int lineNo) {
         String content = t.substring(level).trim();
-        content = content.replaceFirst("[ \t]*#+[ \t]*$", "");
+        content = TRAIL_HASH.matcher(content).replaceFirst("");
         if (content.isEmpty()) owner.warn(lineNo, "标题为空（# 后无内容）");   // 两模式仅警告
         out.append("<h").append(level).append(" id=\"").append(owner.anchorId(++owner.headingSeq)).append("\">")
            .append(owner.inline(content, lineNo, 0))
@@ -101,6 +101,27 @@ class MdBlocks {
         return i + 1;
     }
 
+    private static final java.util.regex.Pattern TRAIL_HASH = java.util.regex.Pattern.compile("[ \t]*#+[ \t]*$");
+
+    /** 行尾是否以"两个及以上空白"结束（硬换行）——字符判定替代逐行正则 */
+    private static boolean endsWithTwoSpaces(String s) {
+        int n = s.length();
+        if (n < 2) return false;
+        char a = s.charAt(n - 1), b = s.charAt(n - 2);
+        return (a == ' ' || a == '\t') && (b == ' ' || b == '\t');
+    }
+
+    /** 去掉行尾空白（替代逐行 replaceAll 的每次编译） */
+    private static String trimTrailing(String s) {
+        int n = s.length();
+        while (n > 0) {
+            char c = s.charAt(n - 1);
+            if (c != ' ' && c != '\t') break;
+            n--;
+        }
+        return n == s.length() ? s : s.substring(0, n);
+    }
+
     /** 段落：连续非空行合并（行尾两个以上空格 = 硬换行），遇到任何块起点即结束 */
     private int renderParagraph(StringBuilder out, List<String> lines, int start, int end, int base) {
         StringBuilder sb = new StringBuilder("<p>");
@@ -111,10 +132,10 @@ class MdBlocks {
             String l = lines.get(i);
             if (l.trim().isEmpty()) break;
             if (scan.isBlockStartAt(lines, i, end)) break;
-            String line = l.replaceAll("[ \t]+$", "");
+            String line = trimTrailing(l);
             if (!first) sb.append(hardPrev ? "<br>\n" : "\n");
             sb.append(owner.inline(line, base + i + 1, 0));
-            hardPrev = l.matches(".*[ \t]{2,}$");
+            hardPrev = endsWithTwoSpaces(l);
             first = false;
             i++;
         }

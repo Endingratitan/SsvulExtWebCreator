@@ -394,7 +394,7 @@ class SiteScan {
                 text = md;
             } else {
                 try {
-                    com.fasterxml.jackson.databind.JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(p.file);
+                    com.fasterxml.jackson.databind.JsonNode root = AssetsConfigReader.jsonMapper().readTree(sb.readFile(p.file));
                     String name = root.path("name").asText("");
                     if (name.isEmpty()) name = p.name;
                     // link 必须用 json 的 name（输出路径由它决定）：曾用文件名拼 → name≠文件名 时列表/搜索链到 404

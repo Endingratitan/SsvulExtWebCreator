@@ -28,11 +28,9 @@ public class MarkdownRenderer {
 
     private static final int MAX_ERRORS = 20;
 
-    /** 代码渲染引擎（构建期上色通道），v1 默认纯转义；全局单例，适合单线程 CLI 使用 */
-    static CodeEngine codeEngine = new PassThroughCodeEngine();
-
-    public static void setCodeEngine(CodeEngine engine) { codeEngine = Objects.requireNonNull(engine); }
-    public static CodeEngine getCodeEngine() { return codeEngine; }
+    /** 本次渲染使用的代码引擎（**实例级**：不再有可变静态字段 → 后台重建/并行构建都不会串页）。
+     *  默认纯转义；页面级引擎链由调用方经 {@link #renderParts(String, String, Map, String, CodeEngine)} 传入。 */
+    CodeEngine engine = new PassThroughCodeEngine();
 
     /** HTML 转义（供引擎实现等复用；char 重载避免热循环里为单个字符分配 String） */
     public static String escapeHtml(String s) { return esc(s); }
@@ -86,9 +84,17 @@ public class MarkdownRenderer {
         return renderParts(md, source, options, "");
     }
 
-    /** anchorPrefix：标题锚点 id 前缀（如 "div-1-"），避免多 md div 页面锚点重复；TOC 链接同步 */
+    /** 便捷重载（1~4 参）：引擎取默认纯转义（单页渲染与测试用；站点构建请用 5 参版传引擎链） */
     public static MdResult renderParts(String md, String source, Map<String, String> options, String anchorPrefix) {
+        return renderParts(md, source, options, anchorPrefix, new PassThroughCodeEngine());
+    }
+
+    /** anchorPrefix：标题锚点 id 前缀（如 "div-1-"），避免多 md div 页面锚点重复；TOC 链接同步。
+     *  engine：本次渲染的代码引擎（**沿参数传入**，不再改静态字段）。 */
+    public static MdResult renderParts(String md, String source, Map<String, String> options,
+                                      String anchorPrefix, CodeEngine engine) {
         MarkdownRenderer r = new MarkdownRenderer(source);
+        r.engine = Objects.requireNonNull(engine);
         r.mode = "strict".equalsIgnoreCase(options.getOrDefault("mode", "simple")) ? "strict" : "simple";
         r.anchorPrefix = anchorPrefix == null ? "" : anchorPrefix;
         // code-ui 渲染开关（全部默认关/缺省）
@@ -204,7 +210,12 @@ public class MarkdownRenderer {
         return k;
     }
 
-    static String stripIndent(String line) { return line.replaceFirst("^ {0,3}", ""); }
+    /** 剥掉行首 0~3 个空格（**字符扫描**：逐行调用的热路径，不再每次编译正则） */
+    static String stripIndent(String line) {
+        int k = 0, n = line.length();
+        while (k < 3 && k < n && line.charAt(k) == ' ') k++;
+        return k == 0 ? line : line.substring(k);
+    }
 
     static boolean isWS(char c) { return Character.isWhitespace(c); }
     static boolean isAlnum(char c) { return Character.isLetterOrDigit(c); }

@@ -34,7 +34,15 @@ class MdBlockScan {
                 || isMathOpen(t) || isMathOpenBracket(t) || headingLevel(t) > 0 || hrType(t) != null || isHtmlBlock(t);
     }
 
-    static boolean isFence(String t) { return t.matches("(`{3,}|~{3,}).*"); }
+    private static final java.util.regex.Pattern FENCE = java.util.regex.Pattern.compile("(`{3,}|~{3,}).*");
+    private static final java.util.regex.Pattern UL_ITEM = java.util.regex.Pattern.compile("[-*+]([ \t].*)?");
+    private static final java.util.regex.Pattern OL_ITEM = java.util.regex.Pattern.compile("\\d+[.)]([ \t].*)?");
+    private static final java.util.regex.Pattern HR_STAR = java.util.regex.Pattern.compile("\\*{3,}[ \t]*");
+    private static final java.util.regex.Pattern HR_UNDER = java.util.regex.Pattern.compile("_{3,}[ \t]*");
+    private static final java.util.regex.Pattern HR_DASH = java.util.regex.Pattern.compile("-{3,}[ \t]*");
+    private static final java.util.regex.Pattern HR_PLUS = java.util.regex.Pattern.compile("\\+{3,}[ \t]*");
+
+    static boolean isFence(String t) { return FENCE.matcher(t).matches(); }
     static boolean isMathOpen(String t) { return t.startsWith("$$"); }
     static boolean isMathOpenBracket(String t) { return t.startsWith("\\["); }
 
@@ -43,9 +51,9 @@ class MdBlockScan {
      * 供 CSS 分别定制渲染（可选）；simple 与 strict 都放行。
      */
     static String hrType(String t) {
-        if (t.matches("\\*{3,}[ \t]*$") || t.matches("_{3,}[ \t]*$")) return "md-hr-star";
-        if (t.matches("-{3,}[ \t]*$")) return "md-hr-dash";
-        if (t.matches("\\+{3,}[ \t]*$")) return "md-hr-plus";
+        if (HR_STAR.matcher(t).matches() || HR_UNDER.matcher(t).matches()) return "md-hr-star";
+        if (HR_DASH.matcher(t).matches()) return "md-hr-dash";
+        if (HR_PLUS.matcher(t).matches()) return "md-hr-plus";
         return null;
     }
 
@@ -66,7 +74,7 @@ class MdBlockScan {
     }
 
     static boolean isListStart(String t) {
-        return t.matches("^[-*+]([ \t].*)?$") || t.matches("^\\d+[.)]([ \t].*)?$");
+        return UL_ITEM.matcher(t).matches() || OL_ITEM.matcher(t).matches();
     }
 
     /** 列表项内容起始列（`- ` = 2，`1. ` = 3，`12) ` = 4）——嵌套层级判定与续行归属靠它 */

@@ -13,12 +13,19 @@ import java.util.List;
 /**
  * 围栏代码块与块数学（包内私有）。
  *
- * 代码块：info 首词作语言 → 交 {@link MarkdownRenderer#codeEngine} 引擎链上色；
+ * 代码块：info 首词作语言 → 交 {@link MarkdownRenderer#engine}（本次渲染的引擎链）上色；
  * 引擎全员拒接或抛错时**降级为纯文本**（警告/收集式报错），构建永不失败；
  * 页面配了 code-ui 时再套一层外壳（items 顺序 = DOM 顺序，未知 item 警告一次并交给 CODEUI.js）。
  * 块数学：`$$…$$` 或 `\[…\]`，未闭合两模式都报错（内容仍原样转义输出）。
  */
 class MdCodeBlocks {
+
+    private static final java.util.regex.Pattern LANG = java.util.regex.Pattern.compile("[A-Za-z0-9_+-]+");
+
+    /** 与 Java 正则 \\s 等价的 ASCII 空白集（isWS 还含 Unicode 空格，语义不完全一致，故单独判） */
+    private static boolean isRegexWS(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == 0x0B;
+    }
 
     private final MarkdownRenderer owner;
 
@@ -56,8 +63,10 @@ class MdCodeBlocks {
         String lang = "";
         String info = t.substring(len).trim();
         if (!info.isEmpty()) {
-            String first = info.split("\\s+")[0];
-            if (first.matches("^[A-Za-z0-9_+-]+$")) lang = first;
+            int sp = 0;
+            while (sp < info.length() && !isRegexWS(info.charAt(sp))) sp++;   // 首个词（替代 split 的每次编译）
+            String first = info.substring(0, sp);
+            if (LANG.matcher(first).matches()) lang = first;
         }
         int j = i + 1;
         StringBuilder content = new StringBuilder();
@@ -76,7 +85,7 @@ class MdCodeBlocks {
         if (!closed && owner.isStrict()) owner.error(base + i + 1, "未闭合的代码块", "请在末尾补上 " + fc, t);
         String rendered;
         try {
-            rendered = MarkdownRenderer.codeEngine.renderCode(content.toString(), lang);
+            rendered = owner.engine.renderCode(content.toString(), lang);
             if (rendered == null) {   // 引擎链全员拒接该语言：纯文本兜底 + 警告，构建不失败
                 owner.warn(base + i + 1, "无引擎接受语言 \"" + lang + "\"，该块已按纯文本输出");
                 rendered = MarkdownRenderer.esc(content.toString());

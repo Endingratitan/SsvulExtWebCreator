@@ -66,7 +66,7 @@ class SitePages {
     // ==================== 页面构建 ====================
 
     void buildJsonPage(SiteScan.Page p) {
-        AssetsConfigReader acr = new AssetsConfigReader(p.file);
+        AssetsConfigReader acr = new AssetsConfigReader(p.file, sb.stats, sb.readFile(p.file));
         acr.Read();
         JsonNode root = acr.getJson();
         String name = root.path("name").asText("");
@@ -125,7 +125,6 @@ class SitePages {
         else if (eng.isArray()) for (JsonNode e : eng) if (e.isTextual()) engNames.add(e.asText());
         sb.engineChain = EngineRegistry.resolve(engNames, sb::warn);
         sb.engineAssets = List.of();
-        MarkdownRenderer.setCodeEngine(sb.engineChain);
 
         Set<String> pageTypes = new LinkedHashSet<>();       // 需要 css 的 div 类型
         Set<String> jsTypes = new LinkedHashSet<>();         // 需要 js 的 div 类型（list 的构建期来源只要 css）
@@ -211,7 +210,6 @@ class SitePages {
         // 裸页不注入引擎资源（性能优先：省流量）；渲染仍走默认 hljs 链（纯转义，与 v1 输出一致）
         sb.engineChain = EngineRegistry.resolve(List.of("hljs"), sb::warn);
         sb.engineAssets = List.of();
-        MarkdownRenderer.setCodeEngine(sb.engineChain);
         sb.hasCode = false;
         sb.hasCallout = false;
         sb.copyJsNeeded = false;
@@ -702,7 +700,7 @@ class SitePages {
                                                 Map<String, String> options, String anchorPrefix) {
         MarkdownRenderer.MdResult empty = new MarkdownRenderer.MdResult("", "");
         if (!field.startsWith("@")) {
-            try { return MarkdownRenderer.renderParts(field, pageSrc, options, anchorPrefix); }
+            try { return MarkdownRenderer.renderParts(field, pageSrc, options, anchorPrefix, sb.engineChain); }
             catch (RuntimeException e) { sb.errors.add(e.getMessage()); return empty; }
         }
         String path = field.substring(1);
@@ -715,7 +713,7 @@ class SitePages {
             sb.errors.add(pageSrc + " 的 md 文件不存在或非 md: " + field);
             return empty;
         }
-        try { return MarkdownRenderer.renderParts(sb.readFile(f), path, options, anchorPrefix); }
+        try { return MarkdownRenderer.renderParts(sb.readFile(f), path, options, anchorPrefix, sb.engineChain); }
         catch (RuntimeException e) { sb.errors.add(e.getMessage()); return empty; }
     }
 

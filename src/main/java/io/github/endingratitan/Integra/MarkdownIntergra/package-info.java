@@ -11,7 +11,8 @@
  * Markdown 渲染子系统（md 的全部实现都在这里；自 {@code Integra} 拆出为独立子包）。
  *
  * <p>对外只有**一个门面**：{@link io.github.endingratitan.Integra.MarkdownIntergra.MarkdownRenderer}
- * ——{@code render / renderParts / joinResult / setCodeEngine / escapeHtml / MdResult} 是公开 API，
+ * ——{@code render / renderParts / joinResult / escapeHtml / MdResult} 是公开 API
+ * （引擎链沿 {@code renderParts} 的参数传入，不再有可变的静态引擎字段），
  * 其余类均为**包内私有**协作件，包外只需认识门面。</p>
  *
  * <p>结构（按"派发 → 判定 → 各块类型"分层）：</p>

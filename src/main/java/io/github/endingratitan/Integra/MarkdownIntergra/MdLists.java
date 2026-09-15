@@ -21,6 +21,9 @@ import java.util.List;
  */
 class MdLists {
 
+    private static final java.util.regex.Pattern TASK = java.util.regex.Pattern.compile("\\[[ xX]\\]([ \t].*)?");
+    private static final java.util.regex.Pattern TASK_STRIP = java.util.regex.Pattern.compile("^\\[[ xX]\\][ \t]*");
+
     private final MarkdownRenderer owner;
     private final MdBlocks blocks;
 
@@ -67,11 +70,11 @@ class MdLists {
         String rawContent = t.substring(Math.min(col, t.length()));
         String content = rawContent.trim();
         boolean task = false, checked = false;
-        if (content.matches("^\\[[ xX]\\]([ \t].*)?$")) {
+        if (TASK.matcher(content).matches()) {
             task = true;
             checked = content.charAt(1) == 'x' || content.charAt(1) == 'X';
         }
-        String firstRaw = task ? rawContent.replaceFirst("^\\[[ xX]\\][ \t]*", "") : rawContent;
+        String firstRaw = task ? TASK_STRIP.matcher(rawContent).replaceFirst("") : rawContent;
         out.append("<li");
         if (task) out.append(" class=\"md-task\"");
         out.append(">");
