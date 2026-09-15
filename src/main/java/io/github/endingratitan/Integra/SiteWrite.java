@@ -48,6 +48,7 @@ class SiteWrite {
         // 同一文件 → `Files.copy` 竞态报错（实测 example-sets 直接构建失败）。保留**最后一次**（= 串行语义），
         // 位置沿用首次出现 → 记录与错误的合并顺序仍然确定。
         Map<String, Job> byRel = new LinkedHashMap<>();
+        Map<String, Set<String>> pendingRefs = new LinkedHashMap<>();   // E：正文引用（待 byRel 齐了再过滤）
         for (int qi = 0; qi < sb.queue.size(); qi++) {   // 索引循环：替换趟可能追加离线复制项
             SiteBuilder.Queued q = sb.queue.get(qi);
             String rel = sb.relOf(q.target);
@@ -71,6 +72,8 @@ class SiteWrite {
                 c = sb.minifyJs(c);
                 sb.stats.nsMinify += System.nanoTime() - t0;
             }
+            sb.addOwnerOut(q.owner, rel);                     // E：本页自己的产物
+            collectRefs(pendingRefs, q.owner, c);             // E：本页引用的预设/outer 副本
             byRel.put(rel, Job.text(q.target, rel, c.getBytes(StandardCharsets.UTF_8)));
         }
         for (String rel : sb.presetCopies) {
@@ -78,6 +81,7 @@ class SiteWrite {
             File dst = new File(sb.outputDir, "assets/pre/" + rel);
             String drel = sb.relOf(dst);
             sb.written.add(drel);
+            sb.inc.addPresetOut(rel, drel);               // E：副本落进**每个引用它的页**的 outs（跳过重放要用）
             if (sb.compressOn() && rel.endsWith(".js") && !rel.startsWith("lib/")) {
                 // 官方预设 js（md/js 等）在输出副本压缩（保许可头）；vendor lib/ 与 css 原样
                 long t0 = System.nanoTime();
@@ -90,6 +94,10 @@ class SiteWrite {
         }
         for (String rel : sb.presetDirCopies) {           // 连带目录（katex fonts 等）也走同一 Job 机制
             addDirJobs(new File(sb.presetDir, rel), new File(sb.outputDir, "assets/pre/" + rel), byRel);
+        }
+        // E：正文引用只在"确实会被复制"时才计为这一页的产物（否则跳过重放会引入幻影产物 → 永远判缺失）
+        for (Map.Entry<String, Set<String>> e : pendingRefs.entrySet()) {
+            for (String r : e.getValue()) if (byRel.containsKey(r)) sb.addOwnerOut(e.getKey(), r);
         }
         List<Job> jobs = new ArrayList<>(byRel.values());
 
@@ -315,6 +323,20 @@ class SiteWrite {
     /** 引用路径允许的字符（字母数字、点、下划线、斜线、连字符） */
     private static boolean isPathChar(char ch) {
         return Character.isLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '/' || ch == '-';
+    }
+
+    /** E：正文里的 `assets/pre/X` / `assets/outer/Y` 就是"这一页引用了它们"（写出后由 byRel 再过滤一次） */
+    private void collectRefs(Map<String, Set<String>> dst, String owner, String text) {
+        if (owner == null) return;
+        for (String prefix : new String[]{"assets/pre/", "assets/outer/"}) {
+            int i = text.indexOf(prefix);
+            while (i >= 0) {
+                int s = i + prefix.length(), e = s;
+                while (e < text.length() && isPathChar(text.charAt(e))) e++;
+                if (e > s) dst.computeIfAbsent(owner, k -> new LinkedHashSet<>()).add(prefix + text.substring(s, e));
+                i = text.indexOf(prefix, Math.max(e, i + 1));
+            }
+        }
     }
 
     private String replaceBuckets(String c, int depth) {

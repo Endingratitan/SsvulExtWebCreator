@@ -70,7 +70,7 @@ public final class Cli {
     public static String usage() {
         return "\n用法:\n" +
                 "  ssvul [build|-b] [--sets d] [--output d] [--assets d]   构建（默认；sets/output/assets 仅供内部测试）\n" +
-                "                   [--rebuild] [--detect] [--git|--no-git] [--git-init 0|1] [--threads auto|0|N]\n" +
+                "                   [--rebuild] [--detect] [--git|--no-git] [--git-init 0|1] [--threads auto|0|N] [--verify 0|1]\n" +
                 "  ssvul [init|-i] [dir]                                 生成站点骨架（默认 site/）\n" +
                 "  ssvul [preview|-p] [--port n] [--watch auto|1|0] [--poll ms] [--inject 0|1] [--open 0|1]\n" +
                 "                                 本地预览（只绑 127.0.0.1；watch 自动重建 + SSE 刷新）\n" +

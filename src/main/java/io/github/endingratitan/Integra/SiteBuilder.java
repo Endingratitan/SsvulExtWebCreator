@@ -60,16 +60,14 @@ public class SiteBuilder {
     final BuildStats stats = new BuildStats();        // 构建统计（计数优先；末尾打印一行）
     final Set<String> written = new LinkedHashSet<>(); // 本次构建产出的相对路径（**含被跳过写入的**：孤儿清理/依赖记录的前提）
     DepsManifest manifest = new DepsManifest();        // 上次构建的依赖记录（缺失/损坏 = 空记录）
+    /** 变更检测（前置阶段）：git/stat 判据 + 变更清单 + 遍历到的文件（SiteIncremental 用它做删除检测） */
+    final SiteDetect detect = new SiteDetect(this);
+    /** 聚合与压缩（被 SitePages/SiteWrite 共用） */
+    final SiteAggregate agg = new SiteAggregate(this);
 
-    // ---- 本机设置（.env）与变更检测（M6）----
+    // ---- 本机设置（.env）（M6）----
     DotEnv dotenv = new DotEnv();                      // 项目根的 .env（缺失即用内置默认，首轮创建）
-    Set<String> changedFiles = new LinkedHashSet<>();  // 变更清单（相对 sets/；仅采集过才有意义）
-    String detectorUsed = "off";                       // off=未采集 | git | stat
-    boolean detectWanted;                              // 本次是否采集变更清单（预览/--detect；普通构建零开销）
-    String detectorPref = "auto";                      // auto | git | stat（CLI --git/--no-git/--detector 覆盖 .env）
     boolean rebuildAll;                                // --rebuild：忽略 manifest（全量重写，排错用）
-    Boolean gitInitForced;                             // --git-init 0/1：覆盖"仅标准布局自动建库"（null = 未指定）
-    boolean gitRepo;                                   // 本次是否可用 git 检测（init/护栏/gc 之后的结果）
     int threadsPref = -1;                              // 写盘相并发度：-1=auto（默认）｜0=串行｜N=指定
 
     // ---- P3/P4 缓存（**实例级 = 每构建一份**，run() 结束显式清空；绝不做进程级，否则长驻预览会吃旧内容）----
@@ -105,12 +103,16 @@ public class SiteBuilder {
     final Set<String> depGroups = new LinkedHashSet<>();       // 去重后的"依赖键集合"指纹（内联组）
     int depKeysMin = Integer.MAX_VALUE, depKeysMax, depPages;
 
+    /** 增量跳过（E）：判定 / 重放 / 记录都在这个协作件里（owner 引用模式，与 SiteScan/SitePages/SiteWrite 同构） */
+    final SiteIncremental inc = new SiteIncremental(this);
+
     static class Queued {
         final File target;
         String content;               // 回填占位符会改写
         final int depth;
         final File source;      // binary 用
         final boolean binary;
+        String owner;           // E：产出它的**页身份**（null = 站点级产物）
         Queued(File target, String content, int depth) { this.target = target; this.content = content; this.depth = depth; this.source = null; this.binary = false; }
         Queued(File target, File source) { this.target = target; this.content = null; this.depth = 0; this.source = source; this.binary = true; }
     }
@@ -126,12 +128,18 @@ public class SiteBuilder {
      * @param gitInit  是否允许在 sets/ 自动建立 git 基线；null/false = 不动调用方的目录
      *                 （**CLI 在标准布局下传 true**；库 API 默认不动，测试与嵌入调用可保持目录干净）
      */
-    public record BuildOptions(boolean rebuild, boolean detect, String detector, Boolean gitInit, Integer threads) {
-        public static final BuildOptions DEFAULTS = new BuildOptions(false, false, null, null, null);
+    public record BuildOptions(boolean rebuild, boolean detect, String detector, Boolean gitInit, Integer threads,
+                               Integer verify) {
+        public static final BuildOptions DEFAULTS = new BuildOptions(false, false, null, null, null, null);
 
         /** 便捷构造：不管并发度（沿用 `.env` 的 auto/显式值） */
         public BuildOptions(boolean rebuild, boolean detect, String detector, Boolean gitInit) {
-            this(rebuild, detect, detector, gitInit, null);
+            this(rebuild, detect, detector, gitInit, null, null);
+        }
+
+        /** 便捷构造：不管并发度与校验档（`.env`/内置默认） */
+        public BuildOptions(boolean rebuild, boolean detect, String detector, Boolean gitInit, Integer threads) {
+            this(rebuild, detect, detector, gitInit, threads, null);
         }
     }
 
@@ -150,11 +158,11 @@ public class SiteBuilder {
         SiteBuilder b = new SiteBuilder(setsDir, outputDir, presetDir);
         try {
             b.manifest = DepsManifest.load(b.manifestFile(), b.absSets(), b.absOutput(), b.warnings);
-            b.detectorPref = detectorPref == null ? "auto" : detectorPref;
-            b.gitRepo = b.resolveRepo(false);      // **allowInit=false**：轮询绝不建仓库/整理仓库
-            b.detectNow();
+            b.detect.detectorPref = detectorPref == null ? "auto" : detectorPref;
+            b.detect.gitRepo = b.detect.resolveRepo(false);      // **allowInit=false**：轮询绝不建仓库/整理仓库
+            b.detect.detectNow();
             warnings.addAll(b.warnings);
-            return new ChangeSet(b.detectorUsed, b.changedFiles, System.currentTimeMillis());
+            return new ChangeSet(b.detect.detectorUsed, b.detect.changedFiles, System.currentTimeMillis());
         } catch (RuntimeException e) {
             warnings.add("变更检测失败（按「无变更」处理）: " + e.getMessage());
             return ChangeSet.NONE;
@@ -182,21 +190,22 @@ public class SiteBuilder {
     public static BuildReport buildReport(File setsDir, File outputDir, File presetDir, BuildOptions opts) {
         SiteBuilder b = new SiteBuilder(setsDir, outputDir, presetDir);
         b.rebuildAll = opts.rebuild();
-        b.detectWanted = opts.detect();
-        if (opts.detector() != null) b.detectorPref = opts.detector();
-        b.gitInitForced = opts.gitInit();
+        b.detect.detectWanted = opts.detect();
+        if (opts.detector() != null) b.detect.detectorPref = opts.detector();
+        b.detect.gitInitForced = opts.gitInit();
         if (opts.threads() != null) b.threadsPref = opts.threads();
+        if (opts.verify() != null) b.inc.verifyLevel = opts.verify();
         long t0 = System.currentTimeMillis();
         try {
             b.run();
             return new BuildReport(true, List.copyOf(b.errors), List.copyOf(b.warnings),
-                    Set.copyOf(b.written), Set.copyOf(b.changedFiles), b.detectorUsed,
+                    Set.copyOf(b.written), Set.copyOf(b.detect.changedFiles), b.detect.detectorUsed,
                     System.currentTimeMillis() - t0, b.stats);
         } catch (RuntimeException e) {
             List<String> errs = new ArrayList<>(b.errors);
             if (errs.isEmpty()) errs.add(String.valueOf(e.getMessage()));   // 非收集式异常（IO 等）也要可见
             return new BuildReport(false, List.copyOf(errs), List.copyOf(b.warnings),
-                    Set.copyOf(b.written), Set.copyOf(b.changedFiles), b.detectorUsed,
+                    Set.copyOf(b.written), Set.copyOf(b.detect.changedFiles), b.detect.detectorUsed,
                     System.currentTimeMillis() - t0, b.stats);
         }
     }
@@ -219,11 +228,25 @@ public class SiteBuilder {
         manifest.siteOutput = absOutput();
         loadDotEnv();              // ① 本机设置（.env）：必须最先——cache-limit/detector/git-gc 都从它来
         t0 = System.nanoTime();
-        loadGitState();            // ② git：首次基线 / 护栏 / 仓库整理 / 变更清单（**必须在任何源读取之前**，否则清单被本次扫描污染）
+        detect.loadGitState();            // ② git：首次基线 / 护栏 / 仓库整理 / 变更清单（**必须在任何源读取之前**，否则清单被本次扫描污染）
         stats.tDetect = ms(t0);
         loadEnv();                 // ③ 网站契约（sets/Environment.config）
         queueCname();
         stats.tEnv = ms(e0);       // .env + Environment.config + CNAME 入队（C：扫描相缺口归因）
+        // E：配置指纹（生成器版本号 + Environment.config 原文）——"改了配置但源没变"必须全量
+        File envCfg = new File(setsDir, "Environment.config");
+        inc.configFp = DepsManifest.recSha((SiteIncremental.generatorVersion() + "\u0000" + (envCfg.isFile() ? readFile(envCfg) : ""))
+                .getBytes(StandardCharsets.UTF_8));
+        // E：**零变更秒回**（不扫描、不渲染、不写盘；只 stat 一遍产物）。任何一条不满足 → 走一般路径
+        if (inc.fastPathOk()) {
+            written.addAll(manifest.outputs.keySet());   // 写集 = 上次的全部产物（否则孤儿检测会全报）
+            stats.pagesSkipped.set(manifest.pages.size());   // 秒回 = 全部页都跳过（报告行如实显示）
+            stats.tTotal = stats.tDetect + stats.tEnv;
+            IO.println("[增量] 无变更（" + detect.detectorUsed + "）：跳过扫描/渲染/写盘，仅逐产物校验");
+            IO.println(stats.report());
+            manifest.save(manifestFile(), written.size());
+            return;
+        }
         long s0 = System.nanoTime();
         scan.scanDivs();
         stats.tDivs = ms(s0);
@@ -264,14 +287,16 @@ public class SiteBuilder {
         backfillGlobals();
         stats.tGlobals = ms(t0);
         for (String w : warnings) IO.println("[构建警告] " + w);
-        if (detectWanted) IO.println("[变更检测] " + detectorUsed + " → "
-                + (changedFiles.isEmpty() ? "无变更" : changedFiles.size() + " 个文件"));
+        if (detect.detectWanted) IO.println("[变更检测] " + detect.detectorUsed + " → "
+                + (detect.changedFiles.isEmpty() ? "无变更" : detect.changedFiles.size() + " 个文件"));
         if (!errors.isEmpty()) throw new RuntimeException(joinErrors());
         t0 = System.nanoTime();
         Set<String> prevOutputs = new LinkedHashSet<>(manifest.outputs.keySet());   // 写盘前快照（merge 会覆盖记录）
         writer.writeAll();
         stats.tWrite = ms(t0);
         reportOrphans(prevOutputs);
+        inc.assemblePageRecords();        // E：重写页记录（跳过的页保留旧记录；消失的页删记录）
+        inc.recordInertSources();         // E：惰性文件记入基线（消掉每轮"已变更"误报；不含 pages/**）
         stats.tTotal = stats.tScan + stats.tDetect + stats.tPages + stats.tGlobals + stats.tWrite;
         IO.println(stats.report());   // 计数为主、耗时参考（供 Bench/CI 抓取）
         manifest.save(manifestFile(), written.size());   // 原子写；内容未变则跳过；失败只影响下次加速
@@ -309,6 +334,11 @@ public class SiteBuilder {
      */
     private void renderPages() {
         for (String t : new ArrayList<>(divs.keySet())) scan.divOf(t);   // ① div 链预热（含 null 缓存）
+        for (String k : manifest.shared) {                               // ② "无页归属"的读取有变化 → 全量
+            if (inc.keyChanged(k)) { inc.sharedChanged = true; break; }
+        }
+        if (inc.forceFull || inc.sharedChanged) IO.println("[增量] "
+                + (inc.forceFull ? "检测到全新的非页面源文件" : "扫描相依赖有变化") + " → 本页全量渲染");
         int threads = ioThreads(pages.size());
         if (threads <= 1) {                                              // 小站自动串行：不建池、零开销
             for (SiteScan.Page p : pages) renderOne(p);
@@ -335,8 +365,17 @@ public class SiteBuilder {
         }
     }
 
-    /** 渲染一页：每页一个 `PageScope` + 一个 `SitePages`/`SiteTags` 实例（页内状态互不共享） */
+    /** 渲染一页：每页一个 `PageScope` + 一个 `SitePages`/`SiteTags` 实例（页内状态互不共享）。
+     *  **E（增量跳过）**：依赖未变、config 未变、且本页产物都还在 → 不渲染，改为**重放副作用**。 */
     private void renderOne(SiteScan.Page p) {
+        String id = inc.identityOf(p);
+        DepsManifest.PageRec rec = id == null ? null : manifest.pages.get(id);
+        if (rec != null && inc.pageSkippable(rec, inc.sharedChanged)) {
+            inc.replayPage(rec);
+            stats.pagesSkipped.incrementAndGet();
+            return;
+        }
+        stats.pagesRendered.incrementAndGet();
         PageScope scope = new PageScope(this, p);
         CURRENT_SCOPE.set(scope);
         try {
@@ -345,6 +384,7 @@ public class SiteBuilder {
             errors.add("页面渲染失败（" + (p.file == null ? p.name : p.file.getName()) + "）: " + e.getMessage());
         } finally {
             CURRENT_SCOPE.remove();
+            inc.renderedScopes.add(scope);
             synchronized (depGroups) {                     // E 埋点统计：页数 / 依赖键数分布 / 内联组数
                 depPages++;
                 depKeysMin = Math.min(depKeysMin, scope.depKeys.size());
@@ -354,7 +394,12 @@ public class SiteBuilder {
         }
     }
 
-    /** 回填 web_global 占位符（页面组装时无法预知全局聚合是否产出） */
+    /** 包内暴露：`PageScope` 用它算页身份 */
+    String sourceKeyOf(File f) { return sourceKey(f); }
+
+    /** E：产物归属登记（转发给 SiteIncremental；写盘相调用） */
+    void addOwnerOut(String owner, String rel) { inc.addOwnerOut(owner, rel); }
+
     private void backfillGlobals() {
         for (Queued q : queue) {
             if (q.content == null) continue;
@@ -377,94 +422,17 @@ public class SiteBuilder {
         return out;
     }
 
-    // ==================== 聚合助手（origin 去重 + A 层 + 项级去重 + runtime） ====================
 
-    boolean dedupOn() { return minifyLevel != 0; }
-    boolean compressOn() { return minifyLevel == 2; }
-    boolean keepDedupComments() { return minifyLevel == -1; }
+    // ==================== 聚合助手（实现在 SiteAggregate） ====================
+    String aggregateDivJs(List<SiteScan.DivInfo> divs) { return agg.aggregateDivJs(divs); }
 
-    /** 聚合 div js（链文件根→叶；origin 保证共享祖先只出一份；A 层冲突扫描；项级去重；runtime 尾接） */
-    String aggregateDivJs(List<SiteScan.DivInfo> divs) {
-        long t0 = System.nanoTime();
-        try {
-            return aggregateDivJs0(divs);
-        } finally {
-            stats.nsAgg.add(System.nanoTime() - t0);
-            stats.aggCalls.incrementAndGet();
-        }
-    }
+    String aggregateDivCss(List<SiteScan.DivInfo> divs) { return agg.aggregateDivCss(divs); }
 
-    private String aggregateDivJs0(List<SiteScan.DivInfo> divs) {
-        List<File> files = new ArrayList<>();
-        Set<String> origins = new HashSet<>();
-        for (SiteScan.DivInfo d : divs)
-            for (File f : d.js)
-                if (origins.add(f.getPath())) files.add(f);
-        List<File> uniq = new ArrayList<>();
-        Set<String> sigs = new HashSet<>();
-        for (File f : files) {
-            String content = readFile(f);
-            if (sigs.add(JsDeduper.signatureOf(content))) uniq.add(f);   // 文件级内容去重
-        }
-        if (dedupOn()) {
-            Map<String, String> decl = new LinkedHashMap<>();
-            for (File f : uniq) {
-                for (String name : JsDeclScan.topLevelBlockScoped(readFile(f))) {
-                    String prev = decl.put(name, f.getName());
-                    if (prev != null && !prev.equals(f.getName()))
-                        errors.add("js 顶层 let/const/class 重名（串联后 SyntaxError）: " + name + "（" + prev + " 与 " + f.getName() + "）");
-                }
-            }
-        }
-        StringBuilder concat = new StringBuilder();
-        for (File f : uniq) concat.append(readFile(f)).append('\n');
-        String js = concat.toString();
-        if (dedupOn()) {
-            JsDeduper.Result r = JsDeduper.dedupItems(js, keepDedupComments());
-            js = r.code();
-            for (String note : r.notes()) warn(note);
-        }
-        // runtime 前置（div js 顶层即调 SsvulDiv.register，运行时必须先定义）；仅当聚合内容使用 SsvulDiv
-        if (js.contains("SsvulDiv")) {
-            String runtime = readPreset("runtime/ssvul-div.js");
-            refPreset("runtime/ssvul-div.js");
-            js = runtime + js;
-        }
-        if (compressOn()) js = minifyJs(js);
-        return js;
-    }
+    boolean compressOn() { return agg.compressOn(); }
 
-    /** 聚合 div css（origin 去重 + 同选择器去重 + 压缩） */
-    String aggregateDivCss(List<SiteScan.DivInfo> divs) {
-        long t0 = System.nanoTime();
-        try {
-            return aggregateDivCss0(divs);
-        } finally {
-            stats.nsAgg.add(System.nanoTime() - t0);
-            stats.aggCalls.incrementAndGet();
-        }
-    }
+    String jsSuffix() { return agg.jsSuffix(); }
 
-    private String aggregateDivCss0(List<SiteScan.DivInfo> divs) {
-        List<File> files = new ArrayList<>();
-        Set<String> origins = new HashSet<>();
-        for (SiteScan.DivInfo d : divs)
-            for (File f : d.css)
-                if (origins.add(f.getPath())) files.add(f);
-        StringBuilder concat = new StringBuilder();
-        for (File f : files) concat.append(readFile(f)).append('\n');
-        String css = concat.toString();
-        if (!dedupOn()) return css;
-        // 结果缓存（键 = 档位|内容哈希）：多页共享同一 div 集合时只去重/压缩一次（P4）
-        String key = minifyLevel + "|css|" + DepsManifest.sha256(css.getBytes(StandardCharsets.UTF_8));
-        String hit = cssCache.get(key);
-        if (hit != null) { stats.cssMinifyHits.incrementAndGet(); return hit; }
-        String out = CssDeduper.dedup(css, keepDedupComments());
-        if (compressOn()) out = CssMinifier.minify(out);
-        stats.cssMinifyCalls.incrementAndGet();
-        cssCache.put(key, out);
-        return out;
-    }
+    String minifyJs(String js) { return agg.minifyJs(js); }
 
     // ==================== 环境 ====================
 
@@ -608,9 +576,20 @@ public class SiteBuilder {
             errors.add("pre-assets/ 引用非法: \"" + suffix + "\"");
             return;
         }
-        if (!new File(presetDir, suffix).isFile()) {
+        File pf = new File(presetDir, suffix);
+        // 存在性检查本来就要一次 stat —— 顺手把它变成**预设源记录**（E 方案(c)：引用即依赖，检测趟据此发现预设改动）
+        java.nio.file.attribute.BasicFileAttributes a = attrs(pf);
+        if (a == null || !a.isRegularFile()) {
             errors.add("预设文件不存在: src/assets/" + suffix);
             return;
+        }
+        recSource("assets:" + suffix, a.size(), a.lastModifiedTime().toMillis(), null);
+        // E：**引用即依赖 + 归属登记**——调用点有 9 处（SiteTags/SitePages/聚合助手），全都在页渲染线程里；
+        // 只有在这一个地方做才不会漏（写盘相据此把副本 rel 记进各页 outs，跳过页重放才有据可依）。
+        PageScope sc = CURRENT_SCOPE.get();
+        if (sc != null) {
+            sc.depKeys.add("assets:" + suffix);
+            inc.refPresetOwner(suffix, sc.identity());
         }
         presetCopies.add(suffix);
         // css 同目录的 fonts/ 连带复制（KaTeX 字体等）
@@ -713,7 +692,11 @@ public class SiteBuilder {
     void recSource(String key, long size, long mtime, String sha) {
         if (key == null) return;
         DepsManifest.Rec old = manifest.sources.get(key);
-        if (old != null && (sha == null || old.sha != null)) return;   // 已有记录（且不补齐 sha 时）不重复 stat
+        // 只在**状态真的没变**时提前返回（"未变源免重复 stat/哈希"的优化）。
+        // 曾经的写法是"有记录就不刷新"，那会让**被改过一次的源永远停在旧 size/mtime**：变更检测每轮都把它
+        // 报成"已变更"（watch 因此每轮白重建一次），E 的增量也永远命中不了。实测：改 994→1010B 后构建，
+        // 记录仍是 994；再检测仍报该文件（见 DotEnvTest.staleSourceRecordIsRefreshed）。
+        if (old != null && old.size == size && old.mtime == mtime && (sha == null || old.sha != null)) return;
         DepsManifest.Rec r = new DepsManifest.Rec();
         r.size = size;
         r.mtime = mtime;
@@ -729,7 +712,7 @@ public class SiteBuilder {
         return null;   // 输出目录里的文件等：不记
     }
 
-    // ==================== 本机设置（.env）与 git（M6） ====================
+    // ==================== 本机设置（.env）（M6） ====================
 
     /** ① `.env`：读取（缺失则探测 git 能力后**创建一次**）；此后只读，失败只警告 */
     private void loadDotEnv() {
@@ -747,155 +730,6 @@ public class SiteBuilder {
         if (threadsPref == -1) threadsPref = dotenv.threads;   // CLI 已给则优先
     }
 
-    /** ③ git：首次基线（init + add -A）→ 忽略护栏 → 仓库整理 → 变更清单（**按需**：普通构建零开销） */
-    private void loadGitState() {
-        gitRepo = resolveRepo(true);
-        if (!detectWanted) return;                       // 普通构建不采集变更清单
-        detectNow();
-    }
-
-    /** `.env` 的 git 能力位：文件里写 `git=0` = 明确不用 git；文件不存在则按探测结果 */
-    boolean gitEnabled() {
-        return dotenv.exists ? dotenv.git == 1 : GitProbe.available();
-    }
-
-    /**
-     * 判定"能不能用 git 检测"（含首次基线 / 忽略护栏 / 仓库整理）。
-     * @param allowInit 是否允许建基线（**只给构建用**：watch 每轮轮询绝不能建库/整理仓库）
-     */
-    private boolean resolveRepo(boolean allowInit) {
-        boolean repo = gitEnabled() && GitProbe.isRepo(setsDir);
-        if (allowInit && gitEnabled() && gitInitForced != null && gitInitForced && !repo && setsDir.isDirectory()) {
-            if (GitProbe.init(setsDir, warnings)) {
-                repo = true;
-                recordBaseline();   // 基线刚建立 = "当前的源就是基线"，别让 init 自己（含 .gitignore）被报成变更
-                IO.println("已在 " + setsDir.getName() + "/ 建立独立 git 仓库（基线 git add -A，未提交；生成器仓库忽略该目录）");
-            }
-        }
-        if (repo && GitProbe.anyIgnored(setsDir, List.of("Environment.config", "pages", "divs"))) {
-            warn("sets/ 的源被 .gitignore 忽略（git 看不见这些改动）→ 变更检测回退 stat+哈希");
-            repo = false;
-        }
-        if (allowInit && repo) {
-            long[] gc = GitProbe.maybeGc(setsDir, dotenv.gitGc, manifest.gcAt, warnings);
-            if (gc != null) {                       // 触发了整理 → 记下时刻与体积（机器状态，写在依赖记录里）
-                manifest.gcAt = gc[0];
-                manifest.gcBytes = gc[1];
-            }
-        }
-        return repo;
-    }
-
-    /** 跑一次检测（写 `changedFiles` / `detectorUsed`）；构建与 watch 共用同一条路径 */
-    void detectNow() {
-        if (gitRepo && !detectorPref.equals("stat")) detectByGit();
-        else detectByStat();
-    }
-
-    /** 站点身份（规范化绝对路径）：manifest 文件名与 `site` 块都用它 */
-    String absSets() { return setsDir.getAbsoluteFile().getPath(); }
-
-    String absOutput() { return outputDir.getAbsoluteFile().getPath(); }
-
-    private void detectByGit() {
-        GitProbe.Changes ch = GitProbe.status(setsDir);
-        if (ch == null) {
-            warn("git status 不可用（超时或报错）→ 变更检测回退 stat+哈希");
-            detectByStat();
-            return;
-        }
-        Set<String> out = new LinkedHashSet<>(ch.worktree());
-        // 只进暂存区的条目（含 init 后那批 "A "）不可直接信：与上次构建的源记录复核，相同才排除（保守不误报）
-        for (String rel : ch.stagedOnly()) {
-            if (sourceChanged(rel)) out.add(rel);
-        }
-        changedFiles = out;
-        detectorUsed = "git";
-        stats.detectCalls++;
-    }
-
-    /**
-     * 快筛 + **内容哈希终判**（tech.md §2 的判据分层）：size/mtime 不符 = 候选；候选若大小相同且记录里有 sha，
-     * 就读一次内容按哈希复核 —— `touch`（只改 mtime）不再引发无谓重建，"同长度改写 + mtime 复原"也不再漏判。
-     * 源文件的 sha 是 `readFile` 顺手算的（实测只占读盘成本的 2–7%，见 `build/ShaProbe.java`）。
-     */
-    private boolean sourceChanged(String rel) {
-        String key = "sets:" + rel;
-        DepsManifest.Rec r = manifest.sources.get(key);
-        File f = new File(setsDir, rel);
-        java.nio.file.attribute.BasicFileAttributes a = attrs(f);
-        if (r == null || a == null || a.size() != r.size || a.lastModifiedTime().toMillis() != r.mtime) {
-            if (r != null && r.sha != null && a != null && a.size() == r.size) {
-                String sha = sha256File(f);
-                if (sha != null && sha.equals(r.sha)) {
-                    stats.hashVerifiedSkips++;
-                    return false;                       // 内容没变（典型：纯 touch）→ 不算变更
-                }
-            }
-            return true;
-        }
-        return false;
-    }
-
-    /** 候选文件的哈希复核（只对候选读一次；失败按"变了"处理，保守） */
-    private static String sha256File(File f) {
-        try {
-            return DepsManifest.recSha(Files.readAllBytes(f.toPath()));
-        } catch (IOException e) {
-            return null;
-        }
-    }
-
-    /**
-     * stat 快筛：与上次构建的**源记录**（size+mtime）比对，不符即候选（含首次构建：无记录 = 全是候选）。
-     *
-     * 边界（诚实说明）：快筛**绝不单独用于跳过写盘**（写盘与否由产物记录的内容哈希把关），它只产出
-     * "哪些源可能变了"的清单；"同长度改写 + mtime 被复原"这种刻意构造会漏判 —— 要绝对可靠请用
-     * `detector=git`（git 有 racy-timestamp 保护）或 `--rebuild`。
-     */
-    private void detectByStat() {
-        List<File> all = new ArrayList<>();
-        collectFiles(setsDir, all);
-        Set<String> ch = new LinkedHashSet<>();
-        for (File f : all) {
-            String key = sourceKey(f);
-            if (key == null) continue;
-            if (sourceChanged(key.substring(key.indexOf(':') + 1))) ch.add(key.substring(key.indexOf(':') + 1));
-        }
-        changedFiles = ch;
-        detectorUsed = "stat";
-        stats.detectCalls++;
-    }
-
-    /** init 后把**当前全部源**记入基线（size+mtime）：初始化本身不该被下一句检测报成"全变了" */
-    private void recordBaseline() {
-        List<File> all = new ArrayList<>();
-        collectFiles(setsDir, all);
-        for (File f : all) {
-            String key = sourceKey(f);
-            if (key == null || manifest.sources.containsKey(key)) continue;
-            DepsManifest.Rec r = new DepsManifest.Rec();
-            r.size = f.length();
-            r.mtime = f.lastModified();
-            manifest.putSource(key, r);
-        }
-    }
-
-    /** sets/ 下全部常规文件（**排序**：遍历顺序不能随文件系统变；跳过 .git/.ssvul） */
-    private static void collectFiles(File dir, List<File> out) {
-        File[] fs = dir.listFiles();
-        if (fs == null) return;
-        Arrays.sort(fs, Comparator.comparing(File::getName));
-        for (File f : fs) {
-            if (f.isDirectory()) {
-                String n = f.getName();
-                if (n.equals(".git") || n.equals(".ssvul")) continue;
-                collectFiles(f, out);
-            } else if (f.isFile()) {
-                out.add(f);
-            }
-        }
-    }
 
     /** 项目根 = **输出目录的父级**（标准布局 = 仓库根）：`.env` 与 `.ssvul/` 都放这里，绝不进 output/ */
     File projectRoot() {
@@ -903,7 +737,13 @@ public class SiteBuilder {
         return parent == null ? outputDir.getAbsoluteFile() : parent;
     }
 
+    /** 站点身份（规范化绝对路径）：manifest 文件名与 `site` 块都用它 */
+    String absSets() { return setsDir.getAbsoluteFile().getPath(); }
+
+    String absOutput() { return outputDir.getAbsoluteFile().getPath(); }
+
     /** 依赖记录位置：`<项目根>/.ssvul/deps-<站点号>.json`（**每站点一份**，同一父目录多站点不会互相顶掉） */
+
     File manifestFile() {
         return new File(projectRoot(), ".ssvul/deps-" + DepsManifest.siteId(setsDir, outputDir) + ".json");
     }
@@ -911,9 +751,11 @@ public class SiteBuilder {
     String readFile(File f) {
         String key = f.getAbsolutePath();
         PageScope sc0 = CURRENT_SCOPE.get();               // E 埋点：**每次调用**都归属（命中也要记！）
+        String k0 = sourceKey(f);
         if (sc0 != null) {
-            String k0 = sourceKey(f);
             if (k0 != null) sc0.depKeys.add(k0);
+        } else if (k0 != null && k0.startsWith("sets:")) {
+            inc.sharedKeys.add(k0);                            // E：无页归属的读取（扫描相）→ 有变化即全量
         }
         String hit = textCache.get(key);
         if (hit != null) { stats.cacheHits.incrementAndGet(); return hit; }        // P3：二次命中走内存
@@ -947,23 +789,6 @@ public class SiteBuilder {
     void warn(String msg) { warnings.add(msg); }
 
 
-    /** 生成物 js 后缀：去重/压缩档（≥1）→ .min.js；0/-1 → .js */
-    String jsSuffix() { return minifyLevel >= 1 ? ".min.js" : ".js"; }
-
-    /** 经注册表压缩（Closure 预留缝）；**结果缓存**（键 = 档位|引擎|内容哈希）：同源多页共享同一聚合时只压一次；
-     *  降级说明并入构建警告；异常兜底原文 */
-    String minifyJs(String js) {
-        String key = minifyLevel + "|" + minifierName + "|" + DepsManifest.sha256(js.getBytes(StandardCharsets.UTF_8));
-        String hit = minifyCache.get(key);
-        if (hit != null) { stats.minifyHits.incrementAndGet(); return hit; }
-        JsMinifier m = JsMinifierRegistry.get(minifierName);
-        JsMinifier.Result r = m.minify(js);
-        stats.minifyCalls.incrementAndGet();
-        stats.minifyBytes.add(js.length());
-        for (String note : r.notes()) warn(note);
-        minifyCache.put(key, r.code());
-        return r.code();
-    }
 
     // ==================== .contract 契约检查（词法可判定才警，漏报用通用警告覆盖） ====================
 

@@ -148,10 +148,10 @@ public class DotEnvTest {
         assertTrue(r2.changedFiles().contains("pages/p0.json"), r2.changedFiles().toString());
 
         // 新页面（未跟踪 → ??）也要报出来
-        write(new File(p[1], "pages/新增.json"),
-                "{\"name\":\"新增\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"# 新的\\n\"}}}");
+        write(new File(p[1], "pages/added.json"),
+                "{\"name\":\"added\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"# 新的\\n\"}}}");
         BuildReport r2b = SiteBuilder.buildReport(p[1], p[2], new File("src/assets"), opts);
-        assertTrue(r2b.changedFiles().contains("pages/新增.json"), r2b.changedFiles().toString());
+        assertTrue(r2b.changedFiles().contains("pages/added.json"), r2b.changedFiles().toString());
 
         // 用户自己 git add（改了但没提交）→ 仍必须报出来（只暂存条目按记录复核）
         write(new File(p[1], "pages/p1.json"),
@@ -161,16 +161,19 @@ public class DotEnvTest {
         assertTrue(r2c.changedFiles().contains("pages/p1.json"), "暂存不提交也不能漏报: " + r2c.changedFiles());
 
         // stat 检测器同样能报出（快筛：size/mtime 与上次源记录不符）
+        // 注：必须**真的再改一次**才能观察 —— 第 0 步修好"源记录陈旧"之后，改过的文件在下次构建里
+        // 记录就被刷新了，不再是"永远报同一个文件"（旧写法正因这个 bug 才让本断言无条件成立）。
+        write(new File(p[1], "pages/p0.json"),
+                "{\"name\":\"p0\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"# p0 又改过\\n\"}}}");
         BuildReport r3 = SiteBuilder.buildReport(p[1], p[2], new File("src/assets"),
                 new SiteBuilder.BuildOptions(false, true, "stat", true));
         assertEquals("stat", r3.detector());
         assertTrue(r3.changedFiles().contains("pages/p0.json"), r3.changedFiles().toString());
 
-        // 普通构建（不采集）→ 零新增开销：detector=off 且清单为空
+        // 普通构建也要采集变更清单（E 增量跳过的输入）；`--detect` 现在只决定要不要打印那一行
         BuildReport r4 = build(p[1], p[2]);
-        assertEquals("off", r4.detector(), "普通构建不采集变更清单");
-        assertTrue(r4.changedFiles().isEmpty());
-        assertEquals(0, r4.stats().detectCalls);
+        assertNotEquals("off", r4.detector(), "E 默认启用 → 每次构建都要检测");
+        assertEquals(1, r4.stats().detectCalls);
     }
 
     @Test
@@ -194,6 +197,33 @@ public class DotEnvTest {
         assertTrue(edited.changedFiles().contains("pages/p0.json"), edited.changedFiles().toString());
     }
 
+    /**
+     * 源记录必须**在内容变了之后刷新**（第 0 步修的真 bug）：记录一旦陈旧，变更检测就会**每轮**把同一个
+     * 文件报成"已变更" —— watch 会无限重建，E 的增量跳过也永远命中不了。
+     * 实测症状（300 页站/example-sets 同现）：改一个源 → 构建一次 → 记录仍是旧的 size/mtime → 再检测仍报它。
+     */
+    @Test
+    void staleSourceRecordIsRefreshed() throws Exception {
+        File[] p = project();
+        SiteBuilder.BuildOptions detect = new SiteBuilder.BuildOptions(false, true, "stat", false);
+        assertTrue(SiteBuilder.buildReport(p[1], p[2], new File("src/assets"), detect).ok());
+
+        // 真改内容（长度也变）→ 构建一次
+        write(new File(p[1], "pages/p0.json"),
+                "{\"name\":\"p0\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"# 改过了\\n\\n正文更长一些\\n\"}}}");
+        BuildReport edited = SiteBuilder.buildReport(p[1], p[2], new File("src/assets"), detect);
+        assertTrue(edited.ok(), String.join("\n", edited.errors()));
+        assertTrue(edited.changedFiles().contains("pages/p0.json"), edited.changedFiles().toString());
+        assertTrue(Files.readString(new File(p[2], "pages/p0/index.html").toPath()).contains("改过了"),
+                "改动必须落到产物");
+
+        // 关键断言：记录已刷新 → 紧接的这一次检测必须是干净的（旧代码会永远报 pages/p0.json）
+        BuildReport again = SiteBuilder.buildReport(p[1], p[2], new File("src/assets"), detect);
+        assertTrue(again.ok(), String.join("\n", again.errors()));
+        assertTrue(again.changedFiles().isEmpty(),
+                "源记录陈旧：改过的文件被永远判为变更（watch 会每轮重建）: " + again.changedFiles());
+    }
+
     @Test
     void gitNotTouchedWhenNotAllowed() throws Exception {
         assumeTrue(GitProbe.available(), "本机无 git，跳过");
@@ -215,6 +245,8 @@ public class DotEnvTest {
         assertTrue(build(p[1], p[2]).ok());
         String after = Files.readString(env.toPath());
         assertTrue(after.startsWith(legacy), "已有内容必须一字不改（只允许末尾追加）");
+        assertEquals(1, after.split("本版新增键的默认值", -1).length - 1,
+                "标题行只该出现一次（跨版本补齐不攒块；0.4.0 实测的观感问题）:\n" + after);
         for (String k : new String[]{"watch=", "poll=", "inject=", "sse-max="}) {
             assertTrue(after.contains(k), "缺失键应被补上: " + k + "\n" + after);
         }

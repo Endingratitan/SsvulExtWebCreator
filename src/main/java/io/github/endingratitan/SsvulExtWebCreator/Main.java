@@ -72,8 +72,17 @@ public class Main {
                         }
                     }
                 }
+                Integer verify = null;
+                if (cli.has("verify")) {
+                    String vv = cli.opt("verify", "");
+                    if (!vv.equals("0") && !vv.equals("1")) {
+                        IO.println("--verify 值须为 0 或 1（0 = 不校验产物；1 = 逐产物 stat，默认）: " + vv);
+                        return 2;
+                    }
+                    verify = Integer.parseInt(vv);
+                }
                 SiteBuilder.build(sets, output, assets, new SiteBuilder.BuildOptions(
-                        cli.flag("rebuild"), cli.flag("detect"), detector, gitInit, threads));
+                        cli.flag("rebuild"), cli.flag("detect"), detector, gitInit, threads, verify));
                 IO.println("Build Done!");
             }
             case "init" -> SiteInit.init(cli.opt("dir", "site"));

@@ -52,6 +52,8 @@ final class PageScope {
     boolean themePickerNeeded;
     boolean offlineListWarned;                                // 列目录预设的 offline 警告每页只发一次（R16）
     int depth;                                                // 当前页深度（data-depth）
+    boolean searchNeeded;                                     // 本页用到 search div（E：跳过页要恢复自己那份贡献）
+    final Set<String> listDirs = new LinkedHashSet<>();        // 本页声明的 list 分片目录（同上）
 
     // ---- 页内集合 ----
     final Set<String> pageGlobalRefs = new LinkedHashSet<>(); // 本页 global: 引用（父子双引用警告）
@@ -84,9 +86,20 @@ final class PageScope {
         if (sb.calloutFiles.containsKey("callout.css")) injectCalloutCss = true;
     }
 
-    /** 引用预设资产（按需复制进产物）：写共享集合——它是 Set，顺序不影响产物字节 */
+    /** 引用预设资产（按需复制进产物）：归属与依赖登记统一在 `SiteBuilder.refPreset` 里做（那里能看到
+     *  `CURRENT_SCOPE`，因此 `SiteTags`/聚合助手那些**直接调用点**也不会漏）。 */
     void refPreset(String suffix) { sb.refPreset(suffix); }
 
     /** 注册本页输出路径（冲突检测在**合并/串行阶段**按页序做，见 `SiteBuilder.mergePage`） */
     void registerOutput(String out) { sb.pageOutputs.add(out); }
+
+    /** **页身份**（E 的页记录键）：源文件在 sets 下的键，如 `sets:pages/about.json`；拿不到就退回文件名 */
+    String identity() { return sb.sourceKeyOf(page.file); }
+
+    /** 页面产物入队（带归属）：E 用 `owner` 收集本页的 `outs`，并在跳过时重放这些产物 */
+    void queueOwned(java.io.File target, String content, int depth) {
+        SiteBuilder.Queued q = new SiteBuilder.Queued(target, content, depth);
+        q.owner = identity();
+        sb.queue.add(q);
+    }
 }

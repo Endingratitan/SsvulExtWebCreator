@@ -51,6 +51,9 @@ public final class BuildStats {
     // ---- 行为计数：**只在串行阶段写** → 普通类型（零开销）----
     public int filesWritten;        // 真正写盘的文件数（P5 后二次构建应为 0）
     public int filesSkipped;        // 跳过写盘的文件数（内容未变）
+    // ---- E（增量跳过）：渲染线程会并发写 → 原子 ----
+    public final AtomicInteger pagesRendered = new AtomicInteger();   // 本轮真正渲染的页数
+    public final AtomicInteger pagesSkipped = new AtomicInteger();    // 依赖未变 + 产物完好 → 跳过的页数
     public int fastSkips;           // 其中走 manifest 快路径（不读文件）
     public int slowCompares;        // 退回"读+逐字节比较"的次数
     public int detectCalls;         // 变更检测执行次数（0 = 本次未采集变更清单）
@@ -85,6 +88,7 @@ public final class BuildStats {
                 + " 压缩=" + minifyCalls.get() + "次(命中" + minifyHits.get() + ")/" + (minifyBytes.sum() / 1024) + "KB"
                 + " css=" + cssMinifyCalls.get() + "次(命中" + cssMinifyHits.get() + ")"
                 + " 写盘=" + filesWritten + " 跳过=" + filesSkipped + "(快路径" + fastSkips + "/慢比较" + slowCompares + ")"
+                + " 页=渲染" + pagesRendered.get() + "/跳过" + pagesSkipped.get()
                 + (detectCalls > 0 ? " 变更检测=" + tDetect + "ms" : "")
                 + " | 扫描=" + tScan + "ms 页面=" + tPages + "ms 全局=" + tGlobals + "ms 写盘=" + tWrite + "ms"
                 + " 合计=" + tTotal + "ms"

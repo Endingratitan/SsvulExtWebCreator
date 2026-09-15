@@ -225,7 +225,9 @@ public final class DotEnv {
         if (missing.isEmpty()) return;                  // 已经齐全 → 不写
         StringBuilder sb = new StringBuilder(text);
         if (!text.endsWith("\n")) sb.append('\n');
-        sb.append("# ↓ 本版新增键的默认值（生成器补全；可自由修改/删除，删掉即回默认）\n");
+        // 标题行只在**首次**补齐时写：否则跨版本加键会攒出好几块"本版新增键"（0.4.0 实测的观感问题）
+        String hdr = "# ↓ 本版新增键的默认值（生成器补全；可自由修改/删除，删掉即回默认）";
+        if (!text.contains(hdr)) sb.append(hdr).append('\n');
         for (String m : missing) sb.append(m).append('\n');
         try {
             Files.writeString(f.toPath(), sb.toString(), StandardCharsets.UTF_8);

@@ -249,14 +249,14 @@ class SiteScan {
         registerDir(rootNode);                          // 串行 DFS（与旧实现同序，且不再碰盘）
     }
 
-    /** 并行分类一层目录：每个目录一个任务，只做"列目录 + 判类型"（stat 密集），互不等待 */
+    /** 并行分类一层目录：每个目录一个任务（**目录内条目再并行**，见 `classifyOne`） */
     private List<DirNode> classifyLevel(List<DirNode> level, ExecutorService pool) throws InterruptedException {
         if (pool == null) {
-            for (DirNode n : level) classifyOne(n);
+            for (DirNode n : level) classifyOne(n, null);
             return level;
         }
         List<Callable<Void>> tasks = new ArrayList<>(level.size());
-        for (DirNode n : level) tasks.add(() -> { classifyOne(n); return null; });
+        for (DirNode n : level) tasks.add(() -> { classifyOne(n, pool); return null; });
         for (Future<Void> f : pool.invokeAll(tasks)) {
             try {
                 f.get();
@@ -267,19 +267,47 @@ class SiteScan {
         return level;
     }
 
-    /** 一个目录：分类条目并**按名排序**（顺序不随文件系统变 → 可复现） */
-    private void classifyOne(DirNode node) {
-        for (File f : SiteBuilder.sortedFiles(node.dir)) {
-            String n = f.getName();
-            if (f.isDirectory()) {
-                if (isRawFolder(f)) node.rawDirs.add(n);
-                else node.subdirs.add(new DirNode(f, node.rel + n + "/"));
-            } else if (n.endsWith(".md")) {
-                node.mdBases.add(n.substring(0, n.length() - 3));
-            } else if (n.endsWith(".json")) {
-                node.jsonBases.add(n.substring(0, n.length() - 5));
-            } else if (!n.startsWith(".")) {
-                node.unknown.add(node.rel + n);
+    /**
+     * 一个目录：**条目级并行**分类（0.4.x，手法同 `SiteBuilder.detectWalk`）。
+     *
+     * 为什么不能只按"目录"分派（0.4.0-B 的老写法）：真实站点常常是**扁平**的 —— bigsite 的 300 个页面文件
+     * 全挤在 `pages/blog/` 一个目录里，按目录分派 = 一个任务干 300 次 stat ⇒ 3 线程几乎没收益
+     * （探针实测同一形状：按目录 762ms vs 按条目 46ms）。这里改成"整目录 readdir 一次 + 每项一次
+     * `readAttributes` 并把结果按下标回填"，**顺序与老实现逐项一致**（目录内按名排序 → 四个列表的追加顺序不变）。
+     */
+    private void classifyOne(DirNode node, ExecutorService pool) {
+        File[] fs = node.dir.listFiles();
+        if (fs == null) return;
+        Arrays.sort(fs, Comparator.comparing(File::getName));
+        int n = fs.length;
+        java.nio.file.attribute.BasicFileAttributes[] as = new java.nio.file.attribute.BasicFileAttributes[n];
+        if (pool != null && n >= 8) {                    // 小目录不值得派任务
+            List<Callable<Void>> tasks = new ArrayList<>(n);
+            for (int i = 0; i < n; i++) {
+                final int k = i;
+                tasks.add(() -> { as[k] = SiteBuilder.attrs(fs[k]); return null; });
+            }
+            try {
+                for (Future<Void> f : pool.invokeAll(tasks)) f.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (Exception ignored) {
+                // 单条目失败由 as[k]==null 表达（老实现里 isDirectory()/isFile() 也都会是 false）
+            }
+        } else {
+            for (int i = 0; i < n; i++) as[i] = SiteBuilder.attrs(fs[i]);
+        }
+        for (int i = 0; i < n; i++) {
+            File f = fs[i];
+            if (as[i] == null) continue;
+            String nm = f.getName();
+            if (as[i].isDirectory()) {
+                if (isRawFolder(f)) node.rawDirs.add(nm);
+                else node.subdirs.add(new DirNode(f, node.rel + nm + "/"));
+            } else if (as[i].isRegularFile()) {
+                if (nm.endsWith(".md")) node.mdBases.add(nm.substring(0, nm.length() - 3));
+                else if (nm.endsWith(".json")) node.jsonBases.add(nm.substring(0, nm.length() - 5));
+                else if (!nm.startsWith(".")) node.unknown.add(node.rel + nm);
             }
         }
     }
