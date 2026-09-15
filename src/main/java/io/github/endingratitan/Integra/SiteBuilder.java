@@ -24,7 +24,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.Executors;
 
 /**
@@ -49,12 +52,11 @@ public class SiteBuilder {
     int sessionTtl = 86400;                                    // session-ttl 键：会话缓存默认时长（秒），0=默认不缓存
     boolean categories, readmeOn, localFavicon;
     boolean envLoaded;
-    Map<String, String> mdOptions = Collections.emptyMap();   // 页面 md-options（默认空 = 全部默认值）
 
     // ---- 收集 ----
-    final List<String> errors = new ArrayList<>();
-    final List<String> warnings = new ArrayList<>();               // 构建警告（控制台输出，不阻断）
-    final List<Queued> queue = new ArrayList<>();
+    final List<String> errors = java.util.Collections.synchronizedList(new ArrayList<>());
+    final List<String> warnings = java.util.Collections.synchronizedList(new ArrayList<>());               // 构建警告（控制台输出，不阻断）
+    final List<Queued> queue = java.util.Collections.synchronizedList(new ArrayList<>());
     final BuildStats stats = new BuildStats();        // 构建统计（计数优先；末尾打印一行）
     final Set<String> written = new LinkedHashSet<>(); // 本次构建产出的相对路径（**含被跳过写入的**：孤儿清理/依赖记录的前提）
     DepsManifest manifest = new DepsManifest();        // 上次构建的依赖记录（缺失/损坏 = 空记录）
@@ -71,46 +73,37 @@ public class SiteBuilder {
     int threadsPref = -1;                              // 写盘相并发度：-1=auto（默认）｜0=串行｜N=指定
 
     // ---- P3/P4 缓存（**实例级 = 每构建一份**，run() 结束显式清空；绝不做进程级，否则长驻预览会吃旧内容）----
-    private final Map<String, String> textCache = new HashMap<>();   // 路径 → 内容（首次读即存，上限保护兜底）
-    private long cacheBytes;
-    private final Map<String, String> minifyCache = new HashMap<>(); // 键 = 档位|引擎|内容哈希 → 压缩结果
-    private final Map<String, String> cssCache = new HashMap<>();    // 键 = 档位|css|内容哈希 → 去重+压缩结果
+    // 0.4.0：三张缓存跨**渲染线程**共享 → 并发容器 + 原子记账（P3 命中率不许因并行下降）
+    private final Map<String, String> textCache = new ConcurrentHashMap<>();   // 路径 → 内容（首次读即存，上限保护兜底）
+    private final java.util.concurrent.atomic.LongAdder cacheBytes = new java.util.concurrent.atomic.LongAdder();
+    private final Map<String, String> minifyCache = new ConcurrentHashMap<>(); // 键 = 档位|引擎|内容哈希 → 压缩结果
+    private final Map<String, String> cssCache = new ConcurrentHashMap<>();    // 键 = 档位|css|内容哈希 → 去重+压缩结果
     private static final int CACHE_FILE_MAX = 512 * 1024;            // 单文件 ≤512KiB 才进缓存
     int cacheTotalMax = DotEnv.DEF_CACHE_LIMIT << 20;                // 总量上限（`.env` 的 cache-limit，MiB；0=关）
-    final Set<String> presetCopies = new LinkedHashSet<>();   // 被引用的 pre-assets 文件
-    final Set<String> presetDirCopies = new LinkedHashSet<>(); // 连带复制的目录（如 katex fonts）
+    final Set<String> presetCopies = java.util.Collections.synchronizedSet(new LinkedHashSet<>());   // 被引用的 pre-assets 文件
+    final Set<String> presetDirCopies = java.util.Collections.synchronizedSet(new LinkedHashSet<>()); // 连带复制的目录（如 katex fonts）
     final Map<String, SiteScan.DivInfo> divs = new LinkedHashMap<>();  // type -> div
-    final Set<String> pageOutputs = new LinkedHashSet<>();    // "pages/..." 形式
+    final Set<String> pageOutputs = java.util.Collections.synchronizedSet(new LinkedHashSet<>());    // "pages/..." 形式
     final List<SiteScan.Page> pages = new ArrayList<>();
     final Set<String> readmeNames = new HashSet<>();          // readme md 文件名去重
     final Map<String, File> outerFiles = new LinkedHashMap<>();  // "调用名/路径" → outer 镜像文件
     boolean webGlobalJs, webGlobalCss;
     boolean offline;                                           // offline=1：bucket 引用本地替换
     boolean outerDirExists;                                    // sets/outer 目录存在（对照警告用）
-    EngineChain engineChain;                                   // 当前页引擎链（写盘前查询资源注入）
-    List<String> engineAssets = List.of();                     // 本页要注入的引擎自动资源（性能门控后）
     final Map<String, File> codeuiFiles = new LinkedHashMap<>();  // sets/global/codeui 的站点级文件
     boolean codeuiCssExists, codeuiJsExists;                   // CODEUI.css/js 存在性（注入门控之一）
     final Map<String, File> calloutFiles = new LinkedHashMap<>();    // sets/global/callout 覆写文件（文件名 → 源）
-    boolean hasCallout, injectCalloutCss;                            // 每页：callout 门控 + 是否注入覆写
-    String injectCalloutVariant;                                     // 每页：命中的语言变体文件名（null → 用 CALLOUT.css）
-    boolean hasCode, copyJsNeeded, injectCodeuiCss, injectCodeuiJs;   // 每页：hasCode 门控 + 注入标记
-    final Set<String> pageGlobalRefs = new LinkedHashSet<>();        // 每页 global: 引用（父子双引用警告）
     final List<Map<String, String>> pageIndex = new ArrayList<>();  // 页面索引（search/list 数据源）：link/title/date/excerpt/text/tags
-    boolean searchNeeded;                                           // 任页用到 search div → 输出 search-index.json
-    final Map<String, Boolean> listDirs = new LinkedHashMap<>();    // list 的 ssvul:shared 声明的 dir 集合（按目录分片发射）
-    boolean offlineListWarned;                                      // 每页：列目录预设的 offline 警告只发一次（R16）
-    String currentPageLink;                                         // 当前页输出链接（list 构建期渲染时排除自己）
-    final List<String> listAssets = new ArrayList<>();              // 本页要注入的 list 预设 js（pre-assets 相对路径）
-    final List<String> mdCsrAssets = new ArrayList<>();             // 本页要注入的 md-csr 库 + hljs（低频预设路径，可长期缓存）
-    final List<String> mdCsrCss = new ArrayList<>();                // md-csr 要注入的 css（math=on → KaTeX；连带 fonts/）
-    boolean themePickerNeeded;                                        // 页含 palette-picker → 链接全部内置主题 css
-    boolean mdCsrNeeded;                                              // 页含 md-csr → 注入 md.css / md-callout.css（内容构建期不可知）
-    int currentPageDepth;                                           // 当前页深度（data-depth 属性注入）
+    volatile boolean searchNeeded;                                           // 任页用到 search div → 输出 search-index.json
+    final Map<String, Boolean> listDirs = java.util.Collections.synchronizedMap(new LinkedHashMap<>());    // list 的 ssvul:shared 声明的 dir 集合（按目录分片发射）
     int minifyLevel = 2;                                       // -1 去重+注释保留 | 0 全关 | 1 去重不压缩 | 2 全开（默认）
     String minifierName = "simple";                            // minifier 键（v3 预留 closure）
 
     SiteScan scan;   // divOf 供页面组装使用
+    /** E 埋点：当前渲染线程正在渲染的那一页（只用于统计"每页依赖多少源键"；并行渲染天然一页一线程） */
+    static final ThreadLocal<PageScope> CURRENT_SCOPE = new ThreadLocal<>();
+    final Set<String> depGroups = new LinkedHashSet<>();       // 去重后的"依赖键集合"指纹（内联组）
+    int depKeysMin = Integer.MAX_VALUE, depKeysMax, depPages;
 
     static class Queued {
         final File target;
@@ -214,12 +207,12 @@ public class SiteBuilder {
 
     private void run() {
         scan = new SiteScan(this);
-        SiteTags tags = new SiteTags(this);
-        SitePages pagesBuilder = new SitePages(this, tags);
+        SitePages pagesBuilder = new SitePages(this);   // 全局相实例（页面渲染每页另建）
         SiteWrite writer = new SiteWrite(this);
 
         try {
         long t0 = System.nanoTime();
+        long e0 = System.nanoTime();
         manifest = rebuildAll ? new DepsManifest()
                 : DepsManifest.load(manifestFile(), absSets(), absOutput(), warnings);   // 缺失/损坏/异站 = 空记录（走慢路径，绝不影响正确性）
         manifest.siteSets = absSets();          // 本次构建的站点身份（写回记录，便于人眼核对）
@@ -230,6 +223,7 @@ public class SiteBuilder {
         stats.tDetect = ms(t0);
         loadEnv();                 // ③ 网站契约（sets/Environment.config）
         queueCname();
+        stats.tEnv = ms(e0);       // .env + Environment.config + CNAME 入队（C：扫描相缺口归因）
         long s0 = System.nanoTime();
         scan.scanDivs();
         stats.tDivs = ms(s0);
@@ -241,19 +235,28 @@ public class SiteBuilder {
         stats.tScanData = ms(s0);
         s0 = System.nanoTime();
         scan.scanFavicon();
+        stats.tFavicon = ms(s0);
+        s0 = System.nanoTime();
         scan.scanOuter();
+        stats.tOuter = ms(s0);
+        s0 = System.nanoTime();
         scan.scanGlobal();
-        stats.tScanMisc = ms(s0);
+        stats.tGlobalScan = ms(s0);
+        stats.tScanMisc = stats.tFavicon + stats.tOuter + stats.tGlobalScan;
         s0 = System.nanoTime();
         scan.collectPageIndex();   // 预收集页面元数据（search/list 数据源；渲染前可用）
         stats.tIndex = ms(s0);
         stats.tScan = ms(t0) - stats.tDetect;
         // 重排 B：先渲染页面（divOf 惰性解析继承链），后生成全局聚合，再回填占位符
         t0 = System.nanoTime();
-        for (SiteScan.Page p : pages) {
-            if (p.bareMd) pagesBuilder.buildBareMd(p); else pagesBuilder.buildJsonPage(p);
-        }
+        renderPages();
+        stats.depPages = depPages;                                   // E 埋点汇总（依赖图规模）
+        stats.depKeysMin = depKeysMin == Integer.MAX_VALUE ? 0 : depKeysMin;
+        stats.depKeysMax = depKeysMax;
+        stats.depGroups = depGroups.size();
         stats.tPages = ms(t0);
+        IO.println("[依赖埋点] 页数=" + depPages + " 每页源键=" + (depKeysMin == Integer.MAX_VALUE ? 0 : depKeysMin)
+                + ".." + depKeysMax + " 去重后依赖组=" + depGroups.size());
         t0 = System.nanoTime();
         pagesBuilder.buildGlobals();
         pagesBuilder.emitSearchIndex();
@@ -297,6 +300,60 @@ public class SiteBuilder {
                 + "（旧文件仍在产物目录里，自动清理待后续版本；预览会继续服务它们）");
     }
 
+    /**
+     * 渲染全部页面（0.4.0 **并行**）：**串行预热 → 并行渲染 → 收尾**。
+     *
+     * 为什么可以乱序完成：每页只写"自己的产物路径"，跨页累加器（queue/pageOutputs/presetCopies/listDirs/
+     * errors/warnings/计数）都是线程安全容器，且**它们的顺序不影响产物字节**（见 history.md 的复杂度分析）。
+     * 预热那一步把 `scan.effectiveDivs` 填满 → 渲染期它只读，省掉惰性解析的竞争。
+     */
+    private void renderPages() {
+        for (String t : new ArrayList<>(divs.keySet())) scan.divOf(t);   // ① div 链预热（含 null 缓存）
+        int threads = ioThreads(pages.size());
+        if (threads <= 1) {                                              // 小站自动串行：不建池、零开销
+            for (SiteScan.Page p : pages) renderOne(p);
+            return;
+        }
+        ExecutorService pool = ioPool(threads);
+        try {
+            List<Callable<Void>> tasks = new ArrayList<>(pages.size());
+            for (SiteScan.Page p : pages) tasks.add(() -> {
+                renderOne(p);
+                return null;
+            });
+            for (Future<Void> f : pool.invokeAll(tasks)) {
+                try {
+                    f.get();
+                } catch (Exception e) {
+                    errors.add("页面渲染线程异常: " + e.getMessage());
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** 渲染一页：每页一个 `PageScope` + 一个 `SitePages`/`SiteTags` 实例（页内状态互不共享） */
+    private void renderOne(SiteScan.Page p) {
+        PageScope scope = new PageScope(this, p);
+        CURRENT_SCOPE.set(scope);
+        try {
+            new SitePages(this, new SiteTags(this, scope), scope).render(p);
+        } catch (RuntimeException e) {
+            errors.add("页面渲染失败（" + (p.file == null ? p.name : p.file.getName()) + "）: " + e.getMessage());
+        } finally {
+            CURRENT_SCOPE.remove();
+            synchronized (depGroups) {                     // E 埋点统计：页数 / 依赖键数分布 / 内联组数
+                depPages++;
+                depKeysMin = Math.min(depKeysMin, scope.depKeys.size());
+                depKeysMax = Math.max(depKeysMax, scope.depKeys.size());
+                depGroups.add(String.join("|", new java.util.TreeSet<>(scope.depKeys)));
+            }
+        }
+    }
+
     /** 回填 web_global 占位符（页面组装时无法预知全局聚合是否产出） */
     private void backfillGlobals() {
         for (Queued q : queue) {
@@ -328,6 +385,16 @@ public class SiteBuilder {
 
     /** 聚合 div js（链文件根→叶；origin 保证共享祖先只出一份；A 层冲突扫描；项级去重；runtime 尾接） */
     String aggregateDivJs(List<SiteScan.DivInfo> divs) {
+        long t0 = System.nanoTime();
+        try {
+            return aggregateDivJs0(divs);
+        } finally {
+            stats.nsAgg.add(System.nanoTime() - t0);
+            stats.aggCalls.incrementAndGet();
+        }
+    }
+
+    private String aggregateDivJs0(List<SiteScan.DivInfo> divs) {
         List<File> files = new ArrayList<>();
         Set<String> origins = new HashSet<>();
         for (SiteScan.DivInfo d : divs)
@@ -369,6 +436,16 @@ public class SiteBuilder {
 
     /** 聚合 div css（origin 去重 + 同选择器去重 + 压缩） */
     String aggregateDivCss(List<SiteScan.DivInfo> divs) {
+        long t0 = System.nanoTime();
+        try {
+            return aggregateDivCss0(divs);
+        } finally {
+            stats.nsAgg.add(System.nanoTime() - t0);
+            stats.aggCalls.incrementAndGet();
+        }
+    }
+
+    private String aggregateDivCss0(List<SiteScan.DivInfo> divs) {
         List<File> files = new ArrayList<>();
         Set<String> origins = new HashSet<>();
         for (SiteScan.DivInfo d : divs)
@@ -381,10 +458,10 @@ public class SiteBuilder {
         // 结果缓存（键 = 档位|内容哈希）：多页共享同一 div 集合时只去重/压缩一次（P4）
         String key = minifyLevel + "|css|" + DepsManifest.sha256(css.getBytes(StandardCharsets.UTF_8));
         String hit = cssCache.get(key);
-        if (hit != null) { stats.cssMinifyHits++; return hit; }
+        if (hit != null) { stats.cssMinifyHits.incrementAndGet(); return hit; }
         String out = CssDeduper.dedup(css, keepDedupComments());
         if (compressOn()) out = CssMinifier.minify(out);
-        stats.cssMinifyCalls++;
+        stats.cssMinifyCalls.incrementAndGet();
         cssCache.put(key, out);
         return out;
     }
@@ -833,19 +910,25 @@ public class SiteBuilder {
 
     String readFile(File f) {
         String key = f.getAbsolutePath();
+        PageScope sc0 = CURRENT_SCOPE.get();               // E 埋点：**每次调用**都归属（命中也要记！）
+        if (sc0 != null) {
+            String k0 = sourceKey(f);
+            if (k0 != null) sc0.depKeys.add(k0);
+        }
         String hit = textCache.get(key);
-        if (hit != null) { stats.cacheHits++; return hit; }        // P3：二次命中走内存
-        stats.diskReads++;
-        stats.cacheMisses++;
+        if (hit != null) { stats.cacheHits.incrementAndGet(); return hit; }        // P3：二次命中走内存
+        stats.diskReads.incrementAndGet();
+        stats.cacheMisses.incrementAndGet();
         try {
             byte[] raw = Files.readAllBytes(f.toPath());
             String s = new String(raw, StandardCharsets.UTF_8);
             recSource(f, s, DepsManifest.recSha(raw));   // 记录 64 位哈希前缀：供变更复核与 v5 增量（实测哈希只占读盘成本 2–7%）
             // 首次读即缓存：实测"二次命中才存"会让第二次读照样落盘（白付一次 9p stat+read）
-            if (s.length() <= CACHE_FILE_MAX && cacheBytes + s.length() <= cacheTotalMax) {
-                textCache.put(key, s);
-                cacheBytes += s.length();
-                stats.cacheStores++;
+            // 并行下先看额度再 putIfAbsent（多线程最多轻微超限，缓存只是加速）；放不进去就算了
+            if (s.length() <= CACHE_FILE_MAX && cacheBytes.sum() + s.length() <= cacheTotalMax
+                    && textCache.putIfAbsent(key, s) == null) {
+                cacheBytes.add(s.length());
+                stats.cacheStores.incrementAndGet();
             }
             return s;
         } catch (IOException e) {
@@ -857,27 +940,12 @@ public class SiteBuilder {
     /** 构建结束即释放内容缓存（长驻预览进程里尤其重要；实例本来就是每构建一份，这里是显式兜底） */
     private void clearCaches() {
         textCache.clear();
-        cacheBytes = 0;
+        cacheBytes.reset();
     }
 
     /** 构建警告（控制台输出，不阻断） */
     void warn(String msg) { warnings.add(msg); }
 
-    /** 按页面 lang 选 callout 覆写文件：语言变体（完整 lang → 主语言）优先，未命中回落 CALLOUT.css（存在即注入）。
-     *  变体是**自包含**的：命中变体就不再注入 CALLOUT.css（想叠加就在变体里 @import url("CALLOUT.css")）。 */
-    void resolveCalloutFiles(String pageLang) {
-        injectCalloutCss = false;
-        injectCalloutVariant = null;
-        if (!hasCallout || calloutFiles.isEmpty()) return;   // 门控：本页没有 callout 就一个字节都不注入
-        String lang = pageLang == null ? "" : pageLang.trim().toLowerCase(Locale.ROOT);
-        String primary = lang.contains("-") ? lang.substring(0, lang.indexOf('-')) : lang;
-        for (String cand : new String[]{lang, primary}) {
-            if (cand.isEmpty()) continue;
-            File hit = calloutFiles.get("callout." + cand + ".css");
-            if (hit != null) { injectCalloutVariant = hit.getName(); injectCalloutCss = true; return; }
-        }
-        if (calloutFiles.containsKey("callout.css")) injectCalloutCss = true;
-    }
 
     /** 生成物 js 后缀：去重/压缩档（≥1）→ .min.js；0/-1 → .js */
     String jsSuffix() { return minifyLevel >= 1 ? ".min.js" : ".js"; }
@@ -887,11 +955,11 @@ public class SiteBuilder {
     String minifyJs(String js) {
         String key = minifyLevel + "|" + minifierName + "|" + DepsManifest.sha256(js.getBytes(StandardCharsets.UTF_8));
         String hit = minifyCache.get(key);
-        if (hit != null) { stats.minifyHits++; return hit; }
+        if (hit != null) { stats.minifyHits.incrementAndGet(); return hit; }
         JsMinifier m = JsMinifierRegistry.get(minifierName);
         JsMinifier.Result r = m.minify(js);
-        stats.minifyCalls++;
-        stats.minifyBytes += js.length();
+        stats.minifyCalls.incrementAndGet();
+        stats.minifyBytes.add(js.length());
         for (String note : r.notes()) warn(note);
         minifyCache.put(key, r.code());
         return r.code();
@@ -899,7 +967,7 @@ public class SiteBuilder {
 
     // ==================== .contract 契约检查（词法可判定才警，漏报用通用警告覆盖） ====================
 
-    private final Set<String> contractChecked = new HashSet<>();
+    private final Set<String> contractChecked = java.util.Collections.synchronizedSet(new HashSet<>());   // 渲染线程会并发 add
 
     void checkContract(SiteScan.DivInfo effective) {
         if (effective == null || effective.requiredHooks.isEmpty()) return;

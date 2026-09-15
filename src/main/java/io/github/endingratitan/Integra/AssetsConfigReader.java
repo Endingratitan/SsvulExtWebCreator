@@ -47,8 +47,7 @@ public class AssetsConfigReader {
     private static final JsonSchemaFactory FACTORY = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V7);
 
     /** schema 缓存：键 = **schema 文件内容的 SHA-256**（不是 mtime——同秒同长的改写也能失效）；每进程编译一次 */
-    private static String schemaKey;
-    private static JsonSchema schemaCache;
+    private static volatile JsonSchema schemaCache;
 
     /**
      * R11：schema 定位 —— **classpath `/page.schema.json` 优先**（jar 内 / build/classes-res），
@@ -72,21 +71,26 @@ public class AssetsConfigReader {
                 + "仓库根有一份真源，构建时由 gradle 复制进 jar（手工编译见 tech.md §12 的 cp 一行）");
     }
 
-    /** 取（必要时编译）共享 schema；stats 非空时只在**真正编译**时计数 */
-    private static synchronized JsonSchema schema(BuildStats stats) {
-        byte[] bytes = loadSchemaBytes();
-        String key = DepsManifest.sha256(bytes);
-        if (!key.equals(schemaKey)) {
+    /** 取（必要时编译）共享 schema；stats 非空时只在**真正编译**时计数
+     *
+     *  **热路径纪律（0.4.0 修）**：这里**每页**都会被调用，所以快路径只能是"volatile 读 + 返回" ——
+     *  绝不读文件、不算哈希、不进 synchronized。曾经每页都 `loadSchemaBytes()` + `sha256(bytes)`，
+     *  实测 300 页白付 **1647ms**（`build/ParRender.java` 对照：校验本身 0ms），还把并行度锁在 1.6×。
+     *  代价：改 `page.schema.json` 需要重启构建/预览（每条构建命令本来就是新 JVM；预览重启一次即可）。 */
+    private static JsonSchema schema(BuildStats stats) {
+        JsonSchema s = schemaCache;                 // volatile 读：无锁、无 IO、无哈希
+        if (s != null) return s;
+        synchronized (AssetsConfigReader.class) {
+            if (schemaCache != null) return schemaCache;
+            byte[] bytes = loadSchemaBytes();
             try {
                 schemaCache = FACTORY.getSchema(MAPPER.readTree(bytes));
             } catch (IOException e) {
-                schemaKey = null;   // 失败不留半状态：下次重试
                 throw new RuntimeException("page.schema.json 解析失败: " + e.getMessage(), e);
             }
-            schemaKey = key;
-            if (stats != null) stats.schemaCompiles++;
+            if (stats != null) stats.schemaCompiles.incrementAndGet();
+            return schemaCache;
         }
-        return schemaCache;
     }
 
     /** 可选的构建统计（M1 起用于性能门禁）；测试与独立使用传 null */
@@ -130,7 +134,7 @@ public class AssetsConfigReader {
      * schema 走进程级缓存（P1）：每进程只编译一次，与页面数无关。
      */
     private boolean ReadJSON(){
-        if (stats != null) stats.jsonParses++;
+        if (stats != null) stats.jsonParses.incrementAndGet();
         JsonNode root;
         try {
             root = preloaded != null ? MAPPER.readTree(preloaded) : MAPPER.readTree(ConfigFile);

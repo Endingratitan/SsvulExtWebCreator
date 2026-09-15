@@ -59,7 +59,8 @@ final class DepsManifest {
         long srcSize, srcMtime;  // 仅二进制副本使用
     }
 
-    final Map<String, Rec> sources = new LinkedHashMap<>();   // "sets:pages/a.md" / "assets:md/css/md.css" → 记录
+    // 0.4.0：`readFile` 跑在**渲染线程**里 → sources 必须并发；落盘时按 key 排序，保证文件字节可复现
+    final Map<String, Rec> sources = new java.util.concurrent.ConcurrentHashMap<>();   // "sets:pages/a.md" → 记录
     final Map<String, Rec> outputs = new LinkedHashMap<>();   // 相对 output 的路径 → 上次写出的记录
 
     String siteSets = "";   // 站点身份（绝对路径；仅用于核对，不参与快路径）
@@ -148,7 +149,7 @@ final class DepsManifest {
             s.put("sets", siteSets);
             s.put("output", siteOutput);
             root.putObject("build").put("files", files);
-            writeMap(root.putObject("sources"), sources);
+            writeMap(root.putObject("sources"), new java.util.TreeMap<>(sources));   // 排序 → 与写入顺序无关（可复现）
             writeMap(root.putObject("outputs"), outputs);
             if (gcAt > 0) {
                 ObjectNode g = root.putObject("git");

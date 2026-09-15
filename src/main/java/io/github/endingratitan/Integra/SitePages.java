@@ -22,10 +22,25 @@ class SitePages {
 
     private final SiteBuilder sb;
     private final SiteTags tags;
+    private final PageScope page;      // 页内私有状态（0.4.0；全局方法用不到，为 null）
 
-    SitePages(SiteBuilder sb, SiteTags tags) {
+    /** 全局相实例（buildGlobals / emitSearchIndex / emitListShards 用）：没有"当前页" */
+    SitePages(SiteBuilder sb) {
+        this.sb = sb;
+        this.tags = null;
+        this.page = null;
+    }
+
+    /** 单页实例（并行渲染：**每页一个**，互不共享页内状态） */
+    SitePages(SiteBuilder sb, SiteTags tags, PageScope page) {
         this.sb = sb;
         this.tags = tags;
+        this.page = page;
+    }
+
+    /** 渲染一页（并行任务的入口）：裸 md 与 json 页在此分派 */
+    void render(SiteScan.Page p) {
+        if (p.bareMd) buildBareMd(p); else buildJsonPage(p);
     }
 
     // ==================== 全局文件 ====================
@@ -67,7 +82,9 @@ class SitePages {
 
     void buildJsonPage(SiteScan.Page p) {
         AssetsConfigReader acr = new AssetsConfigReader(p.file, sb.stats, sb.readFile(p.file));
+        long tj = System.nanoTime();
         acr.Read();
+        sb.stats.nsJson.add(System.nanoTime() - tj);
         JsonNode root = acr.getJson();
         String name = root.path("name").asText("");
         if (name.isEmpty()) name = p.name;
@@ -86,16 +103,16 @@ class SitePages {
             outRel = "pages/" + p.rel + name + "/index.html";
             depth = SiteBuilder.depthOf("pages/" + p.rel + name);
         }
-        sb.currentPageDepth = depth;
+        page.depth = depth;
 
-        sb.mdOptions = new LinkedHashMap<>();
-        sb.pageGlobalRefs.clear();
+        page.mdOptions = new LinkedHashMap<>();
+        page.pageGlobalRefs.clear();
         JsonNode mo = root.path("md-options");
         if (mo.isObject()) {
             Iterator<Map.Entry<String, JsonNode>> it = mo.fields();
             while (it.hasNext()) {
                 Map.Entry<String, JsonNode> e = it.next();
-                sb.mdOptions.put(e.getKey(), e.getValue().asText());
+                page.mdOptions.put(e.getKey(), e.getValue().asText());
             }
         }
 
@@ -110,49 +127,49 @@ class SitePages {
                 boolean ok = bg.startsWith("pre-assets/") || bg.startsWith("http://") || bg.startsWith("https://")
                         || sb.buckets.keySet().stream().anyMatch(b -> bg.startsWith(b + "/"));
                 if (!ok) sb.errors.add("code-ui.bg 形态不合法（pre-assets/、http(s)://、bucket 调用名）: " + bg);
-                else sb.mdOptions.put("codeui.bg", bg);
+                else page.mdOptions.put("codeui.bg", bg);
             }
-            if (cu.path("rounded").asBoolean(false)) sb.mdOptions.put("codeui.rounded", "true");
+            if (cu.path("rounded").asBoolean(false)) page.mdOptions.put("codeui.rounded", "true");
             String lp = cu.path("label-pos").asText("");
-            if (!lp.isEmpty()) sb.mdOptions.put("codeui.label-pos", lp);
+            if (!lp.isEmpty()) page.mdOptions.put("codeui.label-pos", lp);
         }
-        sb.mdOptions.put("codeui.items", String.join(",", codeUiItems));   // 空 = 无外壳（字节兼容）
+        page.mdOptions.put("codeui.items", String.join(",", codeUiItems));   // 空 = 无外壳（字节兼容）
 
         // 页面级引擎链（缺省 = hljs；未知名警告剔除并回退 hljs）；本页 md 渲染全程使用
         List<String> engNames = new ArrayList<>();
         JsonNode eng = root.path("engine");
         if (eng.isTextual()) engNames.add(eng.asText());
         else if (eng.isArray()) for (JsonNode e : eng) if (e.isTextual()) engNames.add(e.asText());
-        sb.engineChain = EngineRegistry.resolve(engNames, sb::warn);
-        sb.engineAssets = List.of();
+        page.engineChain = EngineRegistry.resolve(engNames, sb::warn);
+        page.engineAssets = List.of();
 
         Set<String> pageTypes = new LinkedHashSet<>();       // 需要 css 的 div 类型
         Set<String> jsTypes = new LinkedHashSet<>();         // 需要 js 的 div 类型（list 的构建期来源只要 css）
         boolean[] hasMd = {false};
         boolean[] hasCode = {false};
         boolean[] hasCallout = {false};
-        sb.hasCode = false;
-        sb.hasCallout = false;
-        sb.copyJsNeeded = false;
-        sb.injectCodeuiCss = false;
-        sb.injectCodeuiJs = false;
-        sb.listAssets.clear();
-        sb.mdCsrAssets.clear();
-        sb.mdCsrCss.clear();
-        sb.mdCsrNeeded = false;
-        sb.offlineListWarned = false;
-        sb.currentPageLink = p.index ? "" : "pages/" + p.rel + name + "/";
-        String content = renderDivGroup("", root.path("page"), "页面 " + name, pageTypes, jsTypes, hasMd, hasCode, hasCallout, sb.mdOptions);
+        page.hasCode = false;
+        page.hasCallout = false;
+        page.copyJsNeeded = false;
+        page.injectCodeuiCss = false;
+        page.injectCodeuiJs = false;
+        page.listAssets.clear();
+        page.mdCsrAssets.clear();
+        page.mdCsrCss.clear();
+        page.mdCsrNeeded = false;
+        page.offlineListWarned = false;
+        page.pageLink = p.index ? "" : "pages/" + p.rel + name + "/";
+        String content = renderDivGroup("", root.path("page"), "页面 " + name, pageTypes, jsTypes, hasMd, hasCode, hasCallout, page.mdOptions);
         // 性能门控：本页确有块落到带客户端资源的成员（如 hljs）才注入引擎资源
-        if (sb.engineChain.clientAssetsNeeded()) sb.engineAssets = sb.engineChain.autoAssets();
+        if (page.engineChain.clientAssetsNeeded()) page.engineAssets = page.engineChain.autoAssets();
         // CODEUI 注入门控：站点级文件存在 + 本页有代码块；copy-btn 项触发内置复制脚本
-        sb.hasCode = hasCode[0];
-        sb.injectCodeuiCss = sb.codeuiCssExists && hasCode[0];
-        sb.injectCodeuiJs = sb.codeuiJsExists && hasCode[0];
-        sb.copyJsNeeded = hasCode[0] && codeUiItems.contains("copy-btn");
+        page.hasCode = hasCode[0];
+        page.injectCodeuiCss = sb.codeuiCssExists && hasCode[0];
+        page.injectCodeuiJs = sb.codeuiJsExists && hasCode[0];
+        page.copyJsNeeded = hasCode[0] && codeUiItems.contains("copy-btn");
         // callout 门控：本页出现 callout 才注入 md-callout.css + 站点级覆写（语言变体按本页 lang 命中，未命中回落 CALLOUT.css）
-        sb.hasCallout = hasCallout[0];
-        sb.resolveCalloutFiles(root.path("lang").asText("zh-CN"));
+        page.hasCallout = hasCallout[0];
+        page.resolveCalloutFiles(root.path("lang").asText("zh-CN"));
 
         // 页面级 js/css：origin 去重 + 项级去重 + runtime（聚合助手）；js 只收"需要 js"的类型
         List<SiteScan.DivInfo> cssDivs = new ArrayList<>();
@@ -205,30 +222,33 @@ class SitePages {
     }
 
     void buildBareMd(SiteScan.Page p) {
-        sb.mdOptions = Collections.emptyMap();   // 裸 md 无 json，全用默认
-        sb.pageGlobalRefs.clear();
+        page.mdOptions = Collections.emptyMap();   // 裸 md 无 json，全用默认
+        page.pageGlobalRefs.clear();
         // 裸页不注入引擎资源（性能优先：省流量）；渲染仍走默认 hljs 链（纯转义，与 v1 输出一致）
-        sb.engineChain = EngineRegistry.resolve(List.of("hljs"), sb::warn);
-        sb.engineAssets = List.of();
-        sb.hasCode = false;
-        sb.hasCallout = false;
-        sb.copyJsNeeded = false;
-        sb.injectCodeuiCss = false;
-        sb.injectCodeuiJs = false;
-        sb.offlineListWarned = false;
+        page.engineChain = EngineRegistry.resolve(List.of("hljs"), sb::warn);
+        page.engineAssets = List.of();
+        page.hasCode = false;
+        page.hasCallout = false;
+        page.copyJsNeeded = false;
+        page.injectCodeuiCss = false;
+        page.injectCodeuiJs = false;
+        page.offlineListWarned = false;
         String outRel = "pages/" + p.rel + p.name + "/index.html";
         int depth = SiteBuilder.depthOf("pages/" + p.rel + p.name);
-        sb.currentPageDepth = depth;
+        page.depth = depth;
         String content;
         try {
+            long tm = System.nanoTime();
             MarkdownRenderer.MdResult mr = MarkdownRenderer.renderParts(sb.readFile(p.file),
                     "pages/" + p.rel + p.name + ".md", Collections.emptyMap());
+            sb.stats.nsMd.add(System.nanoTime() - tm);
+            sb.stats.mdCalls.incrementAndGet();
             content = MarkdownRenderer.joinResult(mr);
-            sb.hasCallout = mr.hasCallout();
+            page.hasCallout = mr.hasCallout();
             if (mr.hasCode()) {   // 裸页有代码块时同样注入站点级 CODEUI
-                sb.hasCode = true;
-                sb.injectCodeuiCss = sb.codeuiCssExists;
-                sb.injectCodeuiJs = sb.codeuiJsExists;
+                page.hasCode = true;
+                page.injectCodeuiCss = sb.codeuiCssExists;
+                page.injectCodeuiJs = sb.codeuiJsExists;
             }
         } catch (RuntimeException e) {
             sb.errors.add(e.getMessage());
@@ -236,7 +256,7 @@ class SitePages {
         }
         String base = sb.readPreset("page/BASE.html");
         sb.refPreset("md/css/md.css");
-        sb.resolveCalloutFiles("zh-CN");   // 裸 md 页无 json，lang 与 BASE 模板一致取默认 zh-CN
+        page.resolveCalloutFiles("zh-CN");   // 裸 md 页无 json，lang 与 BASE 模板一致取默认 zh-CN
         String links = "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth) + "assets/pre/md/css/md.css\">\n"
                 + tags.calloutBaseLink(depth)
                 + "{{WEBGLOBAL_CSS:" + depth + "}}"
@@ -291,11 +311,11 @@ class SitePages {
         // 列目录型 list（ssvul:s3）与 md-csr：桶信息在**构建期**解析成 data-bk-*（客户端零配置）；非该来源返回 ""
         if (type.equals("list")) sb2.append(listBucketAttrs(div, pageSrc));
         else if (type.equals("md-csr")) sb2.append(mdCsrAttrs(div, pageSrc));
-        sb2.append(" data-depth=\"").append(sb.currentPageDepth).append('"');
+        sb2.append(" data-depth=\"").append(page.depth).append('"');
         if (info != null && !info.chainTypes.isEmpty())
             sb2.append(" data-family=\"").append(String.join(",", info.chainTypes)).append('"');
         if (type.equals("search")) sb.searchNeeded = true;
-        if (type.equals("palette-picker")) sb.themePickerNeeded = true;
+        if (type.equals("palette-picker")) page.themePickerNeeded = true;
         sb2.append(">\n");
         // list：src 决定数据来源与渲染时机（默认构建期静态 HTML，零 JS）
         boolean[] listClient = {false};
@@ -321,7 +341,10 @@ class SitePages {
             content = div.get("raw").asText();
         } else if (div.has("markdown")) {
             hasMd[0] = true;
+            long t0 = System.nanoTime();
             MarkdownRenderer.MdResult mr = resolveMd(div.get("markdown").asText(), pageSrc, mdOpts, id + "-");
+            sb.stats.nsMd.add(System.nanoTime() - t0);
+            sb.stats.mdCalls.incrementAndGet();
             if (mr.hasCode()) hasCode[0] = true;
             if (mr.hasCallout()) hasCallout[0] = true;
             if (hasTemplate) {
@@ -371,30 +394,30 @@ class SitePages {
     private String mdCsrAttrs(JsonNode div, String pageSrc) {
         JsonNode params = div.get("params");
         checkNoReservedBk(params, pageSrc);
-        sb.mdCsrNeeded = true;      // 页面含 md-csr → md.css / md-callout.css 按需注入（内容运行时才知）
+        page.mdCsrNeeded = true;      // 页面含 md-csr → md.css / md-callout.css 按需注入（内容运行时才知）
         // div 声明了 codeui.* → 与构建期 hasCode 同等对待：注入站点 CODEUI.css/js 与复制按钮脚本
         if (params != null && params.isObject()) {
             Iterator<String> ks = params.fieldNames();
             boolean codeui = false;
             while (ks.hasNext()) if (ks.next().startsWith("codeui.")) codeui = true;
             if (codeui) {
-                if (params.path("codeui.items").asText("").contains("copy-btn")) sb.copyJsNeeded = true;
-                sb.injectCodeuiCss = sb.codeuiCssExists;
-                sb.injectCodeuiJs = sb.codeuiJsExists;
+                if (params.path("codeui.items").asText("").contains("copy-btn")) page.copyJsNeeded = true;
+                page.injectCodeuiCss = sb.codeuiCssExists;
+                page.injectCodeuiJs = sb.codeuiJsExists;
             }
         }
-        if (sb.mdCsrAssets.isEmpty()) {
+        if (page.mdCsrAssets.isEmpty()) {
             // autoAssets() 给的是 pre-assets/ 前缀形态；mdCsrAssets 存的是预设根相对路径（与 listAssets 同规格）
             for (String a : new PassThroughCodeEngine().autoAssets()) {
-                sb.mdCsrAssets.add(a.startsWith("pre-assets/") ? a.substring("pre-assets/".length()) : a);
+                page.mdCsrAssets.add(a.startsWith("pre-assets/") ? a.substring("pre-assets/".length()) : a);
             }
-            sb.mdCsrAssets.addAll(MD_CSR_LIB);
+            page.mdCsrAssets.addAll(MD_CSR_LIB);
         }
         // math=on：KaTeX 是重资产（css + 字体 + js，约 1MB），内容构建期不可知 → 由作者显式声明后再注入
         if (params != null && "on".equalsIgnoreCase(params.path("math").asText(""))) {
-            if (!sb.mdCsrCss.contains("lib/katex/katex.min.css")) sb.mdCsrCss.add("lib/katex/katex.min.css");
-            if (!sb.mdCsrAssets.contains("lib/katex/katex.min.js")) sb.mdCsrAssets.add("lib/katex/katex.min.js");
-            if (!sb.mdCsrAssets.contains("md/js/md-math.js")) sb.mdCsrAssets.add("md/js/md-math.js");
+            if (!page.mdCsrCss.contains("lib/katex/katex.min.css")) page.mdCsrCss.add("lib/katex/katex.min.css");
+            if (!page.mdCsrAssets.contains("lib/katex/katex.min.js")) page.mdCsrAssets.add("lib/katex/katex.min.js");
+            if (!page.mdCsrAssets.contains("md/js/md-math.js")) page.mdCsrAssets.add("md/js/md-math.js");
         }
         if (params == null || !params.isObject() || !params.has("bucket")) return "";
         String name = params.path("bucket").asText("");
@@ -467,8 +490,8 @@ class SitePages {
                 ttl = sb.sessionTtl;
             }
         }
-        if (sb.offline && !sb.offlineListWarned) {
-            sb.offlineListWarned = true;      // 每页只发一次（同页多个列目录列表不重复刷屏）
+        if (sb.offline && !page.offlineListWarned) {
+            page.offlineListWarned = true;      // 每页只发一次（同页多个列目录列表不重复刷屏）
             sb.warn(pageSrc + " 的 list src=ssvul:s3 运行时需要联网（offline=1 的站点无法离线使用该列表）；"
                     + "需离线请改用 build:page-index / ssvul:json");
         }
@@ -547,7 +570,7 @@ class SitePages {
             }
             clientSide[0] = true;
             String asset = "div-libs/list/" + preset + ".js";
-            if (!sb.listAssets.contains(asset)) sb.listAssets.add(asset);
+            if (!page.listAssets.contains(asset)) page.listAssets.add(asset);
             return null;
         }
         clientSide[0] = true;   // 作者自己的函数：构建期只写 data-src，js 由作者引入
@@ -571,8 +594,8 @@ class SitePages {
         entries.sort(Comparator
                 .comparing((Map<String, String> e) -> e.getOrDefault("date", ""), Comparator.reverseOrder())
                 .thenComparing(e -> e.getOrDefault("title", "")));
-        if (excludeSelf && sb.currentPageLink != null && !sb.currentPageLink.isEmpty())
-            entries.removeIf(e -> sb.currentPageLink.equals(e.getOrDefault("link", "")));
+        if (excludeSelf && page.pageLink != null && !page.pageLink.isEmpty())
+            entries.removeIf(e -> page.pageLink.equals(e.getOrDefault("link", "")));
         return entries;
     }
 
@@ -700,7 +723,7 @@ class SitePages {
                                                 Map<String, String> options, String anchorPrefix) {
         MarkdownRenderer.MdResult empty = new MarkdownRenderer.MdResult("", "");
         if (!field.startsWith("@")) {
-            try { return MarkdownRenderer.renderParts(field, pageSrc, options, anchorPrefix, sb.engineChain); }
+            try { return MarkdownRenderer.renderParts(field, pageSrc, options, anchorPrefix, page.engineChain); }
             catch (RuntimeException e) { sb.errors.add(e.getMessage()); return empty; }
         }
         String path = field.substring(1);
@@ -713,7 +736,7 @@ class SitePages {
             sb.errors.add(pageSrc + " 的 md 文件不存在或非 md: " + field);
             return empty;
         }
-        try { return MarkdownRenderer.renderParts(sb.readFile(f), path, options, anchorPrefix, sb.engineChain); }
+        try { return MarkdownRenderer.renderParts(sb.readFile(f), path, options, anchorPrefix, page.engineChain); }
         catch (RuntimeException e) { sb.errors.add(e.getMessage()); return empty; }
     }
 

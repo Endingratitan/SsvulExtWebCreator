@@ -110,9 +110,9 @@ public class DotEnvTest {
         Files.writeString(new File(p[0], ".env").toPath(), "env-version=1\ncache-limit=0\n");
         BuildReport r = build(p[1], p[2]);
         assertTrue(r.ok(), String.join("\n", r.errors()));
-        assertEquals(0, r.stats().cacheStores, "cache-limit=0 → 内容缓存关闭（不存）");
-        assertEquals(0, r.stats().cacheHits, "cache-limit=0 → 内容缓存关闭（不命中）");
-        assertTrue(r.stats().diskReads > 0, "关闭缓存后每次读都落盘");
+        assertEquals(0, r.stats().cacheStores.get(), "cache-limit=0 → 内容缓存关闭（不存）");
+        assertEquals(0, r.stats().cacheHits.get(), "cache-limit=0 → 内容缓存关闭（不命中）");
+        assertTrue(r.stats().diskReads.get() > 0, "关闭缓存后每次读都落盘");
     }
 
     @Test

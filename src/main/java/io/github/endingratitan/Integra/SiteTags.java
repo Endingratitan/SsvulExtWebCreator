@@ -20,8 +20,12 @@ import java.util.*;
 class SiteTags {
 
     private final SiteBuilder sb;
+    private final PageScope page;      // 页内私有状态（每页一个 SiteTags 实例）
 
-    SiteTags(SiteBuilder sb) { this.sb = sb; }
+    SiteTags(SiteBuilder sb, PageScope page) {
+        this.sb = sb;
+        this.page = page;
+    }
 
     String buildLinks(JsonNode root, boolean hasMd, int depth) {
         StringBuilder sb2 = new StringBuilder();
@@ -32,13 +36,13 @@ class SiteTags {
             if (!seen.add(s)) { sb.warn("deps 重复条目已去重: " + s); continue; }
             sb2.append(depTag(s, depth, true));
         }
-        if (hasMd || sb.mdCsrNeeded) {   // md-csr 页：内容构建期不可知，但渲染出来同样需要 md.css（约 3KB）
+        if (hasMd || page.mdCsrNeeded) {   // md-csr 页：内容构建期不可知，但渲染出来同样需要 md.css（约 3KB）
             String mc = root.path("md-css").asText("");
             if (mc.isEmpty()) mc = "pre-assets/md/css/md.css";
             sb2.append(depTag(mc, depth, true));
         }
         // md-csr 的额外 css（math=on → KaTeX；同目录 fonts/ 由 refPreset 连带复制）
-        for (String c : sb.mdCsrCss) sb2.append(depTag("pre-assets/" + c, depth, true));
+        for (String c : page.mdCsrCss) sb2.append(depTag("pre-assets/" + c, depth, true));
         // theme 键自动带出对应主题 css（md/css/md-code-<theme>.css，不存在则跳过，作者可经 deps 自行引入）
         String theme = root.path("theme").asText("");        if (!theme.isEmpty()) {
             String tcss = "pre-assets/md/css/md-code-" + theme + ".css";
@@ -47,7 +51,7 @@ class SiteTags {
             }
         }
         // palette-picker 整页主题切换：链接全部内置主题 css（含未声明的主题，切换即生效）
-        if (sb.themePickerNeeded) {
+        if (page.themePickerNeeded) {
             File[] themes = new File(sb.presetDir, "md/css").listFiles((d, n) -> n.startsWith("md-code-") && n.endsWith(".css"));
             if (themes != null) for (File t : themes) sb2.append(depTag("pre-assets/md/css/" + t.getName(), depth, true));
         }
@@ -55,7 +59,7 @@ class SiteTags {
         sb2.append(calloutBaseLink(depth));
         sb2.append("{{WEBGLOBAL_CSS:").append(depth).append("}}");
         // 站点级 CODEUI.css：存在 + 本页有代码块才注入（顺序在主题 css 之后，便于覆盖）
-        if (sb.injectCodeuiCss) {
+        if (page.injectCodeuiCss) {
             sb2.append("  <link rel=\"stylesheet\" href=\"").append(SiteBuilder.depthPrefix(depth))
                .append("assets/global/codeui/CODEUI.css\">\n");
         }
@@ -66,7 +70,7 @@ class SiteTags {
 
     /** md-callout.css（预设，按需复制）：仅本页出现 callout 时注入；md-csr 页同样需要（运行时 md 可能带 callout） */
     String calloutBaseLink(int depth) {
-        if (!sb.hasCallout && !sb.mdCsrNeeded) return "";
+        if (!page.hasCallout && !page.mdCsrNeeded) return "";
         sb.refPreset("md/css/md-callout.css");
         return "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth)
                 + "assets/pre/md/css/md-callout.css\">\n";
@@ -74,8 +78,8 @@ class SiteTags {
 
     /** sets/global/callout 的覆写：变体（CALLOUT.&lt;lang&gt;.css）命中则只注入变体，否则回落 CALLOUT.css */
     String calloutOverrideLink(int depth) {
-        if (!sb.injectCalloutCss) return "";
-        String name = sb.injectCalloutVariant != null ? sb.injectCalloutVariant : "CALLOUT.css";
+        if (!page.injectCalloutCss) return "";
+        String name = page.injectCalloutVariant != null ? page.injectCalloutVariant : "CALLOUT.css";
         return "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth)
                 + "assets/global/callout/" + name + "\">\n";
     }
@@ -114,7 +118,7 @@ class SiteTags {
             }
         }
         // 引擎自动资源（hljs 三件套等）：性能门控后注入；与用户 md-js 重复 → 警告并跳过
-        for (String a : sb.engineAssets) {
+        for (String a : page.engineAssets) {
             if (mdJs.contains(a)) {
                 sb.warn("md-js 与 engine 自动资源重复，已跳过手写项: " + a);
                 continue;
@@ -129,13 +133,13 @@ class SiteTags {
             }
         }
         // list 预设函数（ssvul:inline / ssvul:shared 等）：按名解析后按需复制到 assets/pre/div-libs/list/ 并注入
-        for (String a : sb.listAssets) {
+        for (String a : page.listAssets) {
             sb.refPreset(a);
             sb2.append("  <script src=\"").append(SiteBuilder.depthPrefix(depth)).append("assets/pre/")
                .append(a).append("\"></script>\n");
         }
         // md-csr：客户端 md 渲染库 + hljs（低频预设路径 → 全站共享、可哈希、可长期缓存）
-        for (String a : sb.mdCsrAssets) {
+        for (String a : page.mdCsrAssets) {
             if (mdJs.contains("pre-assets/" + a)) {   // 作者已在 md-js/deps 里手写 → 跳过自动项，避免重复加载
                 sb.warn("md-js 与 md-csr 自动资源重复，已跳过自动项: " + a);
                 continue;
@@ -145,12 +149,12 @@ class SiteTags {
                .append(a).append("\"></script>\n");
         }
         // copy-btn 内置行为预设（仅 code-ui items 含 copy-btn 且本页有代码块）
-        if (sb.copyJsNeeded) {
+        if (page.copyJsNeeded) {
             sb.refPreset("md/js/md-copy.js");
             sb2.append("  <script src=\"").append(SiteBuilder.depthPrefix(depth)).append("assets/pre/md/js/md-copy.js\"></script>\n");
         }
         // 站点级 CODEUI.js：存在 + 本页有代码块；最后注入（引擎/内置脚本先执行，用户可覆盖与挂事件）
-        if (sb.injectCodeuiJs) {
+        if (page.injectCodeuiJs) {
             sb2.append("  <script src=\"").append(SiteBuilder.depthPrefix(depth))
                .append("assets/global/codeui/CODEUI.js\"></script>\n");
         }
@@ -192,13 +196,13 @@ class SiteTags {
                 return "";
             }
             // 父子 global 双引用警告（引叶子即可，双引会双执行）
-            for (String ref : sb.pageGlobalRefs) {
+            for (String ref : page.pageGlobalRefs) {
                 if (relatedGlobal(type, ref)) {
                     sb.warn("父子 .global 双引用（引叶子即可）: " + type + " 与 " + ref);
                     break;
                 }
             }
-            sb.pageGlobalRefs.add(type);
+            page.pageGlobalRefs.add(type);
             String flat = type.replace('/', '-');
             if (cssPass) {
                 return info.css.isEmpty() ? "" : "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth) + "assets/css/" + flat + ".css\">\n";

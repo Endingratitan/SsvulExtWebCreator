@@ -10,6 +10,10 @@ package io.github.endingratitan.Integra;
 
 import java.io.File;
 import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /**
  * 站点输入扫描（包内私有）：div 索引（三态）→ 页面注册（json/裸md/raw 文件夹/INDEX 特判）→
@@ -124,7 +128,8 @@ class SiteScan {
 
     // ==================== 继承解析（有效 DivInfo，memo） ====================
 
-    private final Map<String, DivInfo> effectiveDivs = new HashMap<>();
+    // 0.4.0：渲染线程也会问 divOf（预热之外的类型）→ 并发容器兜底
+    private final Map<String, DivInfo> effectiveDivs = new java.util.concurrent.ConcurrentHashMap<>();
 
     DivInfo divOf(String type) {
         DivInfo e = effectiveDivs.get(type);
@@ -200,63 +205,119 @@ class SiteScan {
 
     // ==================== 页面扫描 ====================
 
+    /**
+     * 页面扫描（0.4.0-B **并行**）：**逐层并行分类 → 串行 DFS 注册**。
+     *
+     * 为什么这么切：本相 300 页实测 641ms，成本几乎全是"每个条目一次 `isDirectory()` stat"（9p 上 ~1.5ms/次）。
+     * stat 天然可并行（按目录分任务，**同一层**并行、任务之间互不等待 → 不会像嵌套提交那样把池堵死）；
+     * 而"注册"（`registerOutput`/`pages.add`/错误顺序）必须保序，所以放到并行波之后**串行**做，且**不碰盘**。
+     */
+    private static final class DirNode {
+        final File dir;
+        final String rel;
+        final List<String> mdBases = new ArrayList<>();
+        final List<String> jsonBases = new ArrayList<>();
+        final List<String> unknown = new ArrayList<>();
+        final List<String> rawDirs = new ArrayList<>();
+        final List<DirNode> subdirs = new ArrayList<>();
+
+        DirNode(File dir, String rel) {
+            this.dir = dir;
+            this.rel = rel;
+        }
+    }
+
     void scanPages() {
         File root = new File(sb.setsDir, "pages");
         if (!root.isDirectory()) return;
-        scanPagesDir(root, "");
+        int threads = sb.ioThreads(1024);              // 目录数未知 → 取并发上限，不做"工作量收敛"
+        ExecutorService pool = threads > 1 ? sb.ioPool(threads) : null;
+        DirNode rootNode = new DirNode(root, "");
+        try {
+            List<DirNode> level = List.of(rootNode);
+            while (!level.isEmpty()) {
+                List<DirNode> nodes = classifyLevel(level, pool);
+                List<DirNode> next = new ArrayList<>();
+                for (DirNode n : nodes) next.addAll(n.subdirs);
+                level = next;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            if (pool != null) pool.shutdownNow();
+        }
+        registerDir(rootNode);                          // 串行 DFS（与旧实现同序，且不再碰盘）
     }
 
-    private void scanPagesDir(File dir, String rel) {
-        Set<String> mdNames = new HashSet<>();
-        Set<String> jsonNames = new HashSet<>();
-        for (File f : SiteBuilder.sortedFiles(dir)) {
+    /** 并行分类一层目录：每个目录一个任务，只做"列目录 + 判类型"（stat 密集），互不等待 */
+    private List<DirNode> classifyLevel(List<DirNode> level, ExecutorService pool) throws InterruptedException {
+        if (pool == null) {
+            for (DirNode n : level) classifyOne(n);
+            return level;
+        }
+        List<Callable<Void>> tasks = new ArrayList<>(level.size());
+        for (DirNode n : level) tasks.add(() -> { classifyOne(n); return null; });
+        for (Future<Void> f : pool.invokeAll(tasks)) {
+            try {
+                f.get();
+            } catch (Exception e) {
+                sb.errors.add("页面扫描线程异常: " + e.getMessage());
+            }
+        }
+        return level;
+    }
+
+    /** 一个目录：分类条目并**按名排序**（顺序不随文件系统变 → 可复现） */
+    private void classifyOne(DirNode node) {
+        for (File f : SiteBuilder.sortedFiles(node.dir)) {
             String n = f.getName();
             if (f.isDirectory()) {
-                if (isRawFolder(f)) {
-                    registerOutput("pages/" + rel + n);
-                    queueRaw(f, "pages/" + rel + n);
-                } else {
-                    scanPagesDir(f, rel + n + "/");
-                }
+                if (isRawFolder(f)) node.rawDirs.add(n);
+                else node.subdirs.add(new DirNode(f, node.rel + n + "/"));
             } else if (n.endsWith(".md")) {
-                mdNames.add(n.substring(0, n.length() - 3));
+                node.mdBases.add(n.substring(0, n.length() - 3));
             } else if (n.endsWith(".json")) {
-                jsonNames.add(n.substring(0, n.length() - 5));
+                node.jsonBases.add(n.substring(0, n.length() - 5));
             } else if (!n.startsWith(".")) {
-                sb.errors.add("pages 下未知文件类型: " + rel + n);
+                node.unknown.add(node.rel + n);
             }
-        }
-        for (String base : mdNames) {
-            if (jsonNames.contains(base)) {
-                sb.errors.add("同名 md 与 json 冲突（两套配置抢一个输出路径）: " + rel + base);
-                continue;
-            }
-            if (!base.matches("^[a-z0-9]+(-[a-z0-9]+)*$")) {
-                sb.errors.add("md 文件名不符合 kebab-case: " + rel + base + ".md");
-                continue;
-            }
-            registerOutput("pages/" + rel + base);
-            sb.pages.add(new Page(false, new File(dir, base + ".md"), rel, base, true));
-        }
-        for (String base : jsonNames) {
-            if (base.equals("INDEX")) {
-                if (!rel.isEmpty()) { sb.errors.add("INDEX.json 仅允许放在 pages/ 根目录"); continue; }
-                sb.pages.add(new Page(true, new File(dir, base + ".json"), rel, "INDEX", false));
-                continue;
-            }
-            if (!base.matches("^[a-z0-9]+(-[a-z0-9]+)*$")) {
-                sb.errors.add("json 文件名不符合 kebab-case: " + rel + base + ".json");
-                continue;
-            }
-            sb.pages.add(new Page(false, new File(dir, base + ".json"), rel, base, false));
         }
     }
 
-    private void registerOutput(String out) {
-        if (!sb.pageOutputs.add(out)) sb.errors.add("页面输出路径冲突: " + out);
+    /** 串行 DFS 注册（顺序 = 旧实现：先子目录/raw，再 md，最后 json；各自按名排序） */
+    private void registerDir(DirNode node) {
+        for (String n : node.rawDirs) {
+            sb.pageOutputs.add("pages/" + node.rel + n);
+            queueRaw(new File(node.dir, n), "pages/" + node.rel + n);
+        }
+        for (DirNode sub : node.subdirs) registerDir(sub);
+        for (String base : node.mdBases) {
+            if (node.jsonBases.contains(base)) {
+                sb.errors.add("同名 md 与 json 冲突（两套配置抢一个输出路径）: " + node.rel + base);
+                continue;
+            }
+            if (!base.matches("^[a-z0-9]+(-[a-z0-9]+)*$")) {
+                sb.errors.add("md 文件名不符合 kebab-case: " + node.rel + base + ".md");
+                continue;
+            }
+            sb.pageOutputs.add("pages/" + node.rel + base);
+            sb.pages.add(new Page(false, new File(node.dir, base + ".md"), node.rel, base, true));
+        }
+        for (String base : node.jsonBases) {
+            if (node.mdBases.contains(base)) continue;   // 冲突已在 md 那轮报过
+            if (!base.matches("^[a-z0-9]+(-[a-z0-9]+)*$|^INDEX$")) {
+                sb.errors.add("json 文件名不符合 kebab-case: " + node.rel + base);
+                continue;
+            }
+            if (node.rel.isEmpty() && base.equals("INDEX")) {
+                sb.pages.add(new Page(true, new File(node.dir, "INDEX.json"), "", "INDEX", false));
+                continue;
+            }
+            // json 页**不在这里注册输出路径**：名字要等渲染期解析 json 后才确定（json 的 name 才是输出名）
+            sb.pages.add(new Page(false, new File(node.dir, base + ".json"), node.rel, base, false));
+        }
+        for (String u : node.unknown) sb.errors.add("pages 下未知文件类型: " + u);
     }
-
-    /** 目录内直接含 html/css/js 文件 → raw 页面；否则视为中间结构目录 */
     private boolean isRawFolder(File dir) {
         File[] fs = dir.listFiles();
         if (fs == null) return false;
@@ -382,48 +443,103 @@ class SiteScan {
 
     // ==================== 页面索引（search/list 数据源；渲染前预收集） ====================
 
+    /**
+     * 页面索引（search/list 的数据源）：**逐页独立 → 并行**（0.4.0-A）。
+     *
+     * 为什么并行：300 页实测本相 1698ms，其中 **1236ms 是 300 个页面文件的首次读盘**（纯解析只 61ms）——
+     * 也就是说它不是"计算贵"，而是"一批 I/O 被放在串行相里"。9p 上读并发实测 505→117/58/40ms（2/4/8 线程）。
+     *
+     * 确定性：结果写进**按下标定位**的数组（`AtomicReferenceArray`），最后**按页序**追加进 `pageIndex`
+     * → 条目顺序与串行实现逐项一致（解析失败的页仍然是"跳过"，不留空洞）。
+     */
     void collectPageIndex() {
-        for (Page p : sb.pages) {
-            String link, type, title, excerpt, text = "", tags = "";
-            if (p.bareMd) {
-                String md = sb.readFile(p.file);
-                link = "pages/" + p.rel + p.name + "/";
-                type = "md";
-                title = cleanInline(firstHeading(md, p.name));
-                excerpt = cleanInline(firstParagraph(md));
-                text = md;
-            } else {
-                try {
-                    com.fasterxml.jackson.databind.JsonNode root = AssetsConfigReader.jsonMapper().readTree(sb.readFile(p.file));
-                    String name = root.path("name").asText("");
-                    if (name.isEmpty()) name = p.name;
-                    // link 必须用 json 的 name（输出路径由它决定）：曾用文件名拼 → name≠文件名 时列表/搜索链到 404
-                    link = p.index ? "" : "pages/" + p.rel + name + "/";
-                    type = "json";
-                    title = cleanInline(root.path("title").asText(name));
-                    excerpt = cleanInline(root.path("description").asText(""));
-                    StringBuilder tg = new StringBuilder();
-                    com.fasterxml.jackson.databind.JsonNode t = root.path("tags");
-                    if (t.isArray()) for (com.fasterxml.jackson.databind.JsonNode x : t) { if (tg.length() > 0) tg.append(','); tg.append(x.asText()); }
-                    tags = tg.toString();
-                    StringBuilder full = new StringBuilder();
-                    collectMd(root.path("page"), full);
-                    text = full.toString();
-                    if (excerpt.isEmpty() && !text.isEmpty()) excerpt = cleanInline(excerptOf(text));
-                } catch (Exception ex) {
-                    continue;   // 解析失败留给 buildJsonPage 的严格校验报错；索引跳过该页
+        int n = sb.pages.size();
+        if (n == 0) return;
+        AtomicReferenceArray<Map<String, String>> out = new AtomicReferenceArray<>(n);
+        int threads = sb.ioThreads(n);
+        if (threads <= 1) {
+            for (int i = 0; i < n; i++) out.set(i, indexEntry(sb.pages.get(i)));
+        } else {
+            ExecutorService pool = sb.ioPool(threads);
+            try {
+                List<Callable<Void>> tasks = new ArrayList<>(n);
+                for (int i = 0; i < n; i++) {
+                    final int idx = i;
+                    tasks.add(() -> {
+                        out.set(idx, indexEntry(sb.pages.get(idx)));
+                        return null;
+                    });
                 }
+                for (Future<Void> f : pool.invokeAll(tasks)) {
+                    try {
+                        f.get();
+                    } catch (Exception e) {
+                        sb.errors.add("页面索引线程异常: " + e.getMessage());
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                pool.shutdownNow();
             }
-            Map<String, String> e = new LinkedHashMap<>();
-            e.put("link", link);
-            e.put("date", ymd(p.file.lastModified()));
-            e.put("type", type);
-            e.put("title", title);
-            e.put("excerpt", excerpt);
-            e.put("text", text);
-            e.put("tags", tags);
-            sb.pageIndex.add(e);
         }
+        for (int i = 0; i < n; i++) {
+            Map<String, String> e = out.get(i);
+            if (e != null) sb.pageIndex.add(e);      // 按页序回填：与串行实现逐项一致
+        }
+    }
+
+    /** 单页索引条目（只读共享内容缓存；解析失败返回 null —— 留给渲染相的严格校验去报错） */
+    private Map<String, String> indexEntry(Page p) {
+        String link, type, title, excerpt, text = "", tags = "";
+        if (p.bareMd) {
+            String md = sb.readFile(p.file);
+            link = "pages/" + p.rel + p.name + "/";
+            type = "md";
+            title = cleanInline(firstHeading(md, p.name));
+            excerpt = cleanInline(firstParagraph(md));
+            text = md;
+        } else {
+            try {
+                long t0 = System.nanoTime();
+                com.fasterxml.jackson.databind.JsonNode root =
+                        AssetsConfigReader.jsonMapper().readTree(sb.readFile(p.file));
+                sb.stats.nsIdxParse.add(System.nanoTime() - t0);
+                t0 = System.nanoTime();
+                String name = root.path("name").asText("");
+                if (name.isEmpty()) name = p.name;
+                // link 必须用 json 的 name（输出路径由它决定）：曾用文件名拼 → name≠文件名 时列表/搜索链到 404
+                link = p.index ? "" : "pages/" + p.rel + name + "/";
+                type = "json";
+                title = cleanInline(root.path("title").asText(name));
+                excerpt = cleanInline(root.path("description").asText(""));
+                StringBuilder tg = new StringBuilder();
+                com.fasterxml.jackson.databind.JsonNode t = root.path("tags");
+                if (t.isArray()) for (com.fasterxml.jackson.databind.JsonNode x : t) {
+                    if (tg.length() > 0) tg.append(',');
+                    tg.append(x.asText());
+                }
+                tags = tg.toString();
+                StringBuilder full = new StringBuilder();
+                collectMd(root.path("page"), full);
+                text = full.toString();
+                sb.stats.nsIdxText.add(System.nanoTime() - t0);
+                t0 = System.nanoTime();
+                if (excerpt.isEmpty() && !text.isEmpty()) excerpt = cleanInline(excerptOf(text));
+                sb.stats.nsIdxClean.add(System.nanoTime() - t0);
+            } catch (Exception ex) {
+                return null;   // 解析失败留给 buildJsonPage 的严格校验报错；索引跳过该页
+            }
+        }
+        Map<String, String> e = new LinkedHashMap<>();
+        e.put("link", link);
+        e.put("date", ymd(p.file.lastModified()));
+        e.put("type", type);
+        e.put("title", title);
+        e.put("excerpt", excerpt);
+        e.put("text", text);
+        e.put("tags", tags);
+        return e;
     }
 
     /** 条目文本净化：去图片、链接留文字、去行内标记（列表与搜索摘要共用；构建期条目即客户端条目） */
