@@ -118,16 +118,22 @@ public class MarkdownRenderer {
 
     /** 渲染结果：mdBody 不含脚注区（脚注区单独返回，供 {{footnotes}} 占位符或文末注入）；
      *  hasCode=是否出现围栏代码块；hasCallout=是否出现 callout（各自决定对应 CSS 的按需注入） */
-    public record MdResult(String mdBody, String footnotes, boolean hasCode, boolean hasCallout) {
-        public MdResult(String mdBody, String footnotes) { this(mdBody, footnotes, false, false); }
-        public MdResult(String mdBody, String footnotes, boolean hasCode) { this(mdBody, footnotes, hasCode, false); }
+    public record MdResult(String mdBody, String footnotes, boolean hasCode, boolean hasCallout, boolean wrapped) {
+        public MdResult(String mdBody, String footnotes) { this(mdBody, footnotes, false, false, true); }
+        public MdResult(String mdBody, String footnotes, boolean hasCode) { this(mdBody, footnotes, hasCode, false, true); }
     }
 
     /** 把脚注区插回 md-body 末尾（无脚注时原样返回） */
     public static String joinResult(MdResult r) {
         if (r.footnotes.isEmpty()) return r.mdBody;
+        if (!r.wrapped) return r.mdBody + r.footnotes;      // wrap:false ⇒ 没有 md-body 外壳，脚注直接接在末尾
         int pos = r.mdBody.lastIndexOf("</div>");
         return r.mdBody.substring(0, pos) + r.footnotes + r.mdBody.substring(pos);
+    }
+
+    /** `md.wrap`：true（默认，包 `<div class="md-body">`）| false（裸内容，外壳交给 div 模板） */
+    private static boolean wrapOn(Map<String, String> options) {
+        return !"false".equalsIgnoreCase(options.getOrDefault("wrap", "true"));
     }
 
     // ==================== 入口与规范化 ====================
@@ -159,8 +165,9 @@ public class MarkdownRenderer {
         String footnotes = fn.finalizeFootnotes(content);               // 编号分配 + 占位符替换 + 脚注区生成
         if (tocOn && !tocItems.isEmpty()) content.insert(0, buildToc());   // 目录置于 md-body 顶部
         for (String w : warnings) IO.println("[md 警告] " + w);
-        String mdBody = "<div class=\"md-body\">\n" + content + "</div>\n";
-        return new MdResult(mdBody, footnotes, hadCode, hadCallout);
+        boolean wrapped = wrapOn(options);
+        String mdBody = wrapped ? "<div class=\"md-body\">\n" + content + "</div>\n" : content.toString();
+        return new MdResult(mdBody, footnotes, hadCode, hadCallout, wrapped);
     }
 
     /** 块级解析器回调：记录入目录的标题（h2 起） */

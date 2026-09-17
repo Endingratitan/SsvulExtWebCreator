@@ -9,7 +9,7 @@
 
 ## 使用
 
-- 构建：`java -jar ssvul-<版本>.jar build`（默认读取 sets/，输出 output/；或 `-b`）
+- 构建：`java -jar ssvul-<版本>.jar build`（默认读取 sets/，输出 output/；或 `-b`）。**预设资产不用你操心**：仓库内运行时直接用 `src/assets`；**从 jar 运行时自动解包内置预设到 `<项目根>/.ssvul/assets-<版本>/`**（首次几十 ms，之后复用；升级生成器会自动换新目录；`--assets <目录>` 可覆盖）
 - 本地预览：`java -jar ssvul-<版本>.jar preview`（默认 `http://127.0.0.1:23143/`，**只绑本机回环**；端口取 `.env` 的 `preview-port`，可用 `--port` 覆盖；或 `-p`）
 - 初始化站点：`java -jar ssvul-<版本>.jar init [dir]`（默认生成 site/ 骨架，含正确 .gitignore）
 - 子命令：`build|-b`（构建）、`init|-i`（骨架）、`preview|-p`（本地预览）、`version|-v`（版本）
@@ -163,7 +163,9 @@ bucket键的值将以数组存储，允许多次输入；其他键以最后一�
 | offline       | 离线模式：1=是（bucket 引用命中 outer/ 镜像时本地替换进 assets/outer/，未命中报错）；0=否（默认，输出线上 URL；outer 目录存在时对未命中的引用发警告） |
 | engine-words  | 词表扩展：`(语言,data/词表路径)` 可多条；为 simple 引擎追加关键字（行格式 `词` 或 `词:tokenid`，tokenid 见 token-map.js 的 tk 集合，缺省 kw）        |
 | minify        | 优化档：**2=全开（默认**：去重+压缩）、1=去重不压缩、0=全关、-1=去重且被覆写代码以注释保留原位（调试对比）；档 ≥1 生成物用 `.min.js` 后缀        |
-| minifier      | 压缩引擎：simple（默认，自编稳定实现——局部名改写+注释/空白压缩，含 eval/解构等自动降级护栏）；v3 预留 closure（Google Closure Compiler）接入          |
+| minifier      | 压缩引擎：`simple`（默认，自编稳定实现——局部名改写+注释/空白压缩，含 eval/解构等自动降级护栏）／**`closure`（可选，需自带 jar）**：把 `closure-compiler-v<日期>.jar` 放进 classpath（或 fat jar 同目录的 `lib/`）即生效，**没放就自动回退 simple 并给一条警告**（不静默降级、不阻断构建）。只提供 `SIMPLE_OPTIMIZATIONS`；`language_out` 固定 `ECMASCRIPT_NEXT`（不做 ES5 降级转译）；许可头保留。**实测相对 simple 再省 11.9% 字节 / 4.2% gzip**，耗时约 60–90ms/唯一 bundle（`WHITESPACE_ONLY` 实测不如内置 simple；`ADVANCED` 需要 externs，列入计划）          |
+| md-css        | md 主题默认值（站点级）：`default`=预设主题 `md/css/md.css`；`none`=不要预设 md 排版主题（站点自带设计系统时用）；或 `pre-assets/…`、`global/…` 指定主题文件。页面/div 的 `md.css` 可就近覆盖 |
+| md-wrap       | md 结果是否用 `<div class="md-body">` 包住（站点级默认，`1`/缺省=包，`0`=不包）。页面/div 的 `md.wrap` 可就近覆盖 |
 | session-ttl   | 会话缓存时长（秒），默认 86400（24h），0=默认不缓存。作用于列目录型列表（`ssvul:s3`）：列目录结果存浏览器 `sessionStorage`（**不跨会话/标签**，随标签页存活 → 挂机页面不反复请求），过期才重新请求；单个列表可用 `params.cache` 覆盖 |
 
 #### divs/
@@ -251,7 +253,7 @@ offline=0 时：输出线上 URL，但若 outer 目录存在而引用未命中 �
 | favicon                    | string   | 图标地址：http(s)://、pre-assets/、@favicon/文件名（sets/favicon/ 下）、bucket 调用名路径          |
 | head                       | string[] | 追加进 <head> 的原生 HTML 片段                                                                     |
 | theme                      | string   | 初始主题（如 light/dark）：生成 data-theme + 防闪烁内联脚本，并自动引用 md-theme.js 预设           |
-| md-css                     | string   | md 主题 css（pre-assets/、bk/、http(s)://）；缺省用预设 pre-assets/md/css/md.css；无 md 内容时忽略 |
+| md                         | object   | md 渲染与主题（页面级默认，div 级同构且就近覆盖）：`css`=主题（`default`=预设主题／`none`=不要主题／`pre-assets/…`／`global/…`）、`wrap`=是否用 `<div class="md-body">` 包住渲染结果（默认 true）、其余为渲染选项。主题注入时**统一作用域化**为 `md-theme-<hash>`（一份主题一个类一个文件，见下"md 主题"节） |
 | md-js                      | string[] | md 增强 js（顺序保序；如 md-math.js）；有 md 内容时注入；hljs 高亮三件套已由 engine 自动注入，无需手写 |
 | deps                       | string[] | 依赖：http(s):// 外源、pre-assets/ 预设、global:<type> 显式引用 .global div                        |
 | engine                     | string/string[] | 代码高亮引擎（有序链，默认 hljs）；simple=构建期词法零客户端脚本；详见"代码高亮引擎"小节          |
@@ -266,7 +268,7 @@ offline=0 时：输出线上 URL，但若 outer 目录存在而引用未命中 �
   - `type`（必填）：对应 sets/divs/ 下目录（categories=1 时写作 category/divname），未命中回落 src/assets/divs/
   - `params`：注入模板 {{key}} 并渲染为根元素 data-key 属性；键名禁止 content/children
   - `markdown`：内联 md；或以 @pages/...、@data/... 引用 md 文件 → 转 html 注入 {{content}}
-  - `md-options`：本 div 的 md 渲染选项（可选）：级联覆盖页面级/父 div 同名键，只作用于本 div 的 markdown；锚点/脚注 id 自动加本 div-ID 前缀
+  - `md`：本 div 的 md 渲染与主题（可选）：就近覆盖页面级同名键，只作用于本 div 的 markdown；`css`/`wrap` 见顶层键表；锚点/脚注 id 自动加本 div-ID 前缀
   - `raw`：任意 HTML 片段注入 {{content}}（与 markdown 二选一）
   - `attrs`：注入根元素属性（class 并入默认类 ssvul-<type>；id 禁止）
   - `divs`：嵌套子组合（同 div-ID 规则）
@@ -284,12 +286,12 @@ offline=0 时：输出线上 URL，但若 outer 目录存在而引用未命中 �
 重复定义/引用未定义报错，定义多出仅警告；定义内再写 `[^x]` 按字面（不支持嵌套，与 GitHub 一致）；
 `footnote-display: end`（默认：脚注区放 md-body 末尾；div 模板可用 `{{footnotes}}` 占位符接管位置）| `inline`（定义处就地显示）。
 
-md 渲染选项（页面 json 顶层 `md-options`，全部有默认值可不写）：
+md 渲染选项（页面 json 顶层 `md` 对象里，全部有默认值可不写）：
 - `mode`: `simple`（默认，GitHub 兼容：--- 分隔线、原生 HTML、不限列表嵌套、未闭合围栏不报错）| `strict`（严格报错，列表嵌套限 8 层）
 - `footnote-display`: `end`（默认，脚注统一放）| `inline`（就地显示）
 - `toc`: `true` 构建期生成目录（md-body 顶部，h2~h6 入目录、h1 排除；默认 false）
 - `callout-title`: `default`（默认，注入 callout 默认标签）| `none`（不出默认标题元素，作者自定义标题仍生效）
-div 条目内可写同名 `md-options`（可选，级联覆盖）：只覆盖写出的键，其余继承页面级（嵌套 div 继承父 div 有效值）；
+div 条目内可写同一个 `md` 对象（可选，就近覆盖）：只覆盖写出的键，其余继承页面级（嵌套 div 继承父 div 有效值）；
 只作用于该 div 自己的 markdown，其标题锚点与脚注 id 自动加该 div-ID 前缀（如 div-1-s1、div-1-fn-1）。
 
 simple/strict 行为矩阵（⑥ 定稿；两模式支持面相同，仅容忍度不同）：
@@ -328,7 +330,7 @@ simple/strict 行为矩阵（⑥ 定稿；两模式支持面相同，仅容忍�
 - **非内置类型不算错误**：警告一次并按扩展类型渲染（类名 `md-callout-<type>` 保留、标题回落为类型名首字母大写 `release` → Release、配色落到中性兜底），随后用站点级 `CALLOUT.css` 上样式即可。
 - 产物契约：`<blockquote class="md-callout md-callout-note" data-callout="note">` + `<p class="md-callout-title md-callout-title-default"><span class="md-callout-label">注意</span></p>`（自定义标题不带 `-default` 类与 `label` 层）；图标由 CSS `mask` + data-URI 实现（**零 JS、零请求**）。
 - **按需注入**：`md-callout.css` 只在**本页出现 callout** 时注入（hasCallout 门控，与 code-ui 的 hasCode 同构）；无 callout 的页面零新增字节。
-- `md-options.callout-title`: `default`（默认）| `none`（不出默认标题；自定义标题仍生效），div 级可级联覆盖。
+- `md.callout-title`: `default`（默认）| `none`（不出默认标题；自定义标题仍生效），div 级可就近覆盖。
 - **扩展与覆写（站点级逃生舱）**：`sets/global/callout/CALLOUT.css`（基础）与 `CALLOUT.<lang>.css`（语言变体，`lang` 为占位符，如 `zh` / `zh-CN` / `en`）。**存在即注入** + hasCallout 门控；页面 `lang` 命中变体时**只注入变体**（变体自包含；想叠加就在变体首行 `@import url("CALLOUT.css");`），未命中回落 `CALLOUT.css`；同选择器后到即胜。目录内仅允许这两个文件名，多出报错。官方模板在 `src/assets/global/callout/`（永不自动注入）。
 
 > 完整指南：[docs/UserWrite/callout-guide.md](docs/UserWrite/callout-guide.md)（语法/16 类型表/扩展三配方/变量契约/校验与性能）。
@@ -416,7 +418,7 @@ simple/strict 行为矩阵（⑥ 定稿；两模式支持面相同，仅容忍�
   "md-js": ["pre-assets/md/js/md-math.js", "pre-assets/md/js/md-highlight.js"],
   "page": {
     "div-1": { "type": "navbar", "params": { "brand": "Ssvul" } },
-    "div-2": { "type": "article", "markdown": "@pages/about.md", "md-options": { "footnote-display": "inline" }, "divs": { "div-1": { "type": "comment" } } }
+    "div-2": { "type": "article", "markdown": "@pages/about.md", "md": { "footnote-display": "inline" }, "divs": { "div-1": { "type": "comment" } } }
   }
 }
 ```

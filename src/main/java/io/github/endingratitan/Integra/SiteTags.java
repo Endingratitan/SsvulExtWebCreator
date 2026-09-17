@@ -27,7 +27,7 @@ class SiteTags {
         this.page = page;
     }
 
-    String buildLinks(JsonNode root, boolean hasMd, int depth) {
+    String buildLinks(JsonNode root, boolean hasMd, int depth, java.util.Set<String> themeClasses) {
         StringBuilder sb2 = new StringBuilder();
         Set<String> seen = new LinkedHashSet<>();
         JsonNode deps = root.path("deps");
@@ -36,10 +36,10 @@ class SiteTags {
             if (!seen.add(s)) { sb.warn("deps 重复条目已去重: " + s); continue; }
             sb2.append(depTag(s, depth, true));
         }
-        if (hasMd || page.mdCsrNeeded) {   // md-csr 页：内容构建期不可知，但渲染出来同样需要 md.css（约 3KB）
-            String mc = root.path("md-css").asText("");
-            if (mc.isEmpty()) mc = "pre-assets/md/css/md.css";
-            sb2.append(depTag(mc, depth, true));
+        // md 主题：一律"注册类 + 作用域化文件"（类名与文件由 SiteMdThemes/refTheme 在渲染期登记好）
+        for (String cls : themeClasses) {
+            sb2.append("  <link rel=\"stylesheet\" href=\"")
+               .append(SiteBuilder.depthPrefix(depth)).append("assets/css/").append(cls).append(".css\">\n");
         }
         // md-csr 的额外 css（math=on → KaTeX；同目录 fonts/ 由 refPreset 连带复制）
         for (String c : page.mdCsrCss) sb2.append(depTag("pre-assets/" + c, depth, true));

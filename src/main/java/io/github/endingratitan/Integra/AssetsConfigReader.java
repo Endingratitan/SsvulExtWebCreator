@@ -34,7 +34,7 @@ public class AssetsConfigReader {
     /** config 允许的键（未知键报错） */
     private static final Set<String> CONFIG_KEYS =
             Set.of("cname", "server", "bucket", "categories", "readme", "local-favicon", "offline",
-                    "engine-words", "minify", "minifier", "session-ttl");
+                    "engine-words", "minify", "minifier", "session-ttl", "md-css", "md-wrap");
 
     /** bucket 第 3 段起允许的属性键（键=值；未知键报错） */
     private static final Set<String> BUCKET_ATTR_KEYS = Set.of("endpoint", "prefix", "ref");

@@ -63,6 +63,8 @@ final class DepsManifest {
         List<String> deps = new ArrayList<>();
         List<String> outs = new ArrayList<>();
         boolean search;
+        /** 本页把全站索引烧进了 HTML（`build:page-index` / `ssvul:inline`）→ 别的页变了它也要重渲染 */
+        boolean usesIndex;
         List<String> listDirs = new ArrayList<>();
     }
 
@@ -148,6 +150,7 @@ final class DepsManifest {
                     if (v.path("deps").isArray()) for (JsonNode x : v.path("deps")) r.deps.add(x.asText());
                     if (v.path("outs").isArray()) for (JsonNode x : v.path("outs")) r.outs.add(x.asText());
                     r.search = v.path("search").asBoolean(false);
+                    r.usesIndex = v.path("usesIndex").asBoolean(false);
                     if (v.path("listDirs").isArray()) for (JsonNode x : v.path("listDirs")) r.listDirs.add(x.asText());
                     m.pages.put(e.getKey(), r);
                 });
@@ -207,6 +210,7 @@ final class DepsManifest {
                 var u = o.putArray("outs");
                 for (String k : new java.util.TreeSet<>(r.outs)) u.add(k);
                 if (r.search) o.put("search", true);
+                if (r.usesIndex) o.put("usesIndex", true);
                 if (!r.listDirs.isEmpty()) {
                     var l = o.putArray("listDirs");
                     for (String k : new java.util.TreeSet<>(r.listDirs)) l.add(k);

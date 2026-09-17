@@ -11,10 +11,15 @@ package io.github.endingratitan.WebMinify.css;
 import java.util.*;
 
 /**
- * CSS 同选择器去重（继承链串联场景）：规范化选择器文本相同 → **后到胜，前驱整块删除**。
+ * CSS 同选择器去重（**跨来源块**的继承链串联场景）：规范化选择器文本相同 → **后一块胜，前一块的前驱整块删除**。
  *
  * **这是既定特性、不是等价变换**：后规则未声明的属性会随前驱一起消失，所以子 div 用同名选择器时
  * 必须把需要的声明全部重写（见 docs/UserWrite/div-guide.md §5）。省流量的收益优先于等价性。
+ *
+ * ⚠️ **同一个来源块内部绝不互删**（`dedup(css, keep)` 单块调用即此语义）：一个 css 文件里把同名
+ * 选择器分两次写（基础样式 + 后续微调，如 `.site-banner{…}` 后再 `.site-banner{position:…}`）
+ * 是正常写法，删前驱会**静默丢样式**——实测真站点一个文件里有 32 个重复选择器，
+ * 曾被整块删掉导致字体/横幅/主题大面积错乱（见 `dedup(String,boolean,int[])`）。
  * at-rule（@media/@keyframes 等）整块保守跳过；无块 at-rule（@import/@charset/@layer a,b;）以 `;` 为界，
  * 否则会把紧随其后的一条规则吞进 at-rule 段、使其不参与去重。
  * keepRemovedAsComments=true 时被删规则以注释回插（* / 转义）；取原文必须用**输入偏移**（输出偏移在删除后已漂移）。
@@ -23,37 +28,61 @@ public final class CssDeduper {
 
     private CssDeduper() {}
 
+    /** 单块去重：**同块内同名选择器都保留**（一个文件里的正常重复写法不许被删） */
     public static String dedup(String css, boolean keepRemovedAsComments) {
+        return dedup(css, keepRemovedAsComments, null);
+    }
+
+    /**
+     * 多来源块去重。`chunkStarts` = 各来源块在 `css` 里的起始偏移（升序，首元素为 0）；传 null 等价单块。
+     * 语义：**只有"更靠后的来源块"里的同名选择器才会删掉更早块里的前驱**（div 继承链覆盖）；
+     * 同一个块内部一律保留。`adjust` 用输出偏移、取原文用输入偏移（删除后输出偏移会漂移）。
+     */
+    public static String dedup(String css, boolean keepRemovedAsComments, int[] chunkStarts) {
         List<Seg> segs = segment(css);
-        Map<String, int[]> last = new HashMap<>();       // 规范化选择器 → {输出start, 输出end, 输入start, 输入end}
+        Map<String, Ent> last = new HashMap<>();          // 规范化选择器 → 最近一次出现
         StringBuilder out = new StringBuilder(css.length());
         for (Seg s : segs) {
             if (!s.rule) { out.append(css, s.start, s.end); continue; }
             String sel = normalize(css.substring(s.start, s.bodyStart));
-            int[] prev = last.put(sel, new int[]{out.length(), out.length(), s.start, s.end});   // 占位，稍后填
-            if (prev != null) {
-                // 前驱区间置空（保留注释位）；取被删原文用输入偏移 prev[2..3]，替换区间用输出偏移 prev[0..1]
+            int gen = chunkStarts == null ? 0 : chunkOf(chunkStarts, s.start);
+            Ent prev = last.get(sel);
+            if (prev != null && prev.gen != gen) {        // 跨块才删（同块内保留）
                 if (keepRemovedAsComments) {
-                    String old = css.substring(prev[2], prev[3]).replace("*/", "* /");
+                    String old = css.substring(prev.inStart, prev.inEnd).replace("*/", "* /");
                     String ins = "/* ssvul-css-dedup: removed (overridden by later same selector)\n" + old + "\n*/\n";
-                    out.replace(prev[0], prev[1], ins);
-                    adjust(last, prev[1], ins.length() - (prev[1] - prev[0]));
+                    out.replace(prev.outStart, prev.outEnd, ins);
+                    adjust(last, prev.outEnd, ins.length() - (prev.outEnd - prev.outStart));
                 } else {
-                    out.replace(prev[0], prev[1], "");
-                    adjust(last, prev[1], -(prev[1] - prev[0]));
+                    out.replace(prev.outStart, prev.outEnd, "");
+                    adjust(last, prev.outEnd, -(prev.outEnd - prev.outStart));
                 }
             }
             int start = out.length();
             out.append(css, s.start, s.end);
-            last.put(sel, new int[]{start, out.length(), s.start, s.end});
+            last.put(sel, new Ent(start, out.length(), s.start, s.end, gen));
         }
         return out.toString();
     }
 
-    private static void adjust(Map<String, int[]> last, int from, int shift) {
-        for (int[] r : last.values()) {
-            if (r[0] >= from) r[0] += shift;
-            if (r[1] >= from) r[1] += shift;
+    /** 规则所在来源块下标：最后一个 ≤ 输入偏移的块起点 */
+    private static int chunkOf(int[] chunkStarts, int offset) {
+        int lo = 0, hi = chunkStarts.length - 1, ans = 0;
+        while (lo <= hi) {
+            int mid = (lo + hi) >>> 1;
+            if (chunkStarts[mid] <= offset) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+        }
+        return ans;
+    }
+
+    private record Ent(int outStart, int outEnd, int inStart, int inEnd, int gen) { }
+
+    private static void adjust(Map<String, Ent> last, int from, int shift) {
+        for (Map.Entry<String, Ent> e : last.entrySet()) {
+            Ent r = e.getValue();
+            int a = r.outStart >= from ? r.outStart + shift : r.outStart;
+            int b = r.outEnd >= from ? r.outEnd + shift : r.outEnd;
+            if (a != r.outStart || b != r.outEnd) e.setValue(new Ent(a, b, r.inStart, r.inEnd, r.gen));
         }
     }
 

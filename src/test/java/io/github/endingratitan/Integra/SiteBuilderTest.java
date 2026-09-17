@@ -91,7 +91,9 @@ public class SiteBuilderTest {
         assertTrue(new File(out, "pages/blog/post/index.html").isFile());
         assertTrue(new File(out, "README.md").isFile());
         assertTrue(new File(out, "assets/data/lib/data.json").isFile());
-        assertTrue(new File(out, "assets/pre/md/css/md.css").isFile());   // 预设按需复制
+        String themeCls = SiteMdThemes.classNameOf("pre-assets/md/css/md.css");
+        assertTrue(new File(out, "assets/css/" + themeCls + ".css").isFile(), "md 主题应产出作用域化副本");
+        assertFalse(new File(out, "assets/pre/md/css/md.css").isFile(), "原始主题不再复制进产物（产物里只有 scoped 那份）");
 
         String index = Files.readString(new File(out, "index.html").toPath());
         assertTrue(index.contains("<nav>Ssvul</nav>"), index);
@@ -209,15 +211,52 @@ public class SiteBuilderTest {
     }
 
     @Test
+    void faviconSkipsDotFiles() throws Exception {
+        // `init` 骨架自带 favicon/.gitkeep（项目管理用）——它不该被当产物发布出去
+        File sets = tmp.resolve("sets").toFile();
+        File out = tmp.resolve("output").toFile();
+        write(new File(sets, "Environment.config"), "cname=example.com\n");
+        write(new File(sets, "favicon/icon.ico"), "ICO");
+        write(new File(sets, "favicon/.gitkeep"), "");
+        write(new File(sets, "divs/t/template.html"), "<div>{{content}}</div>");
+        write(new File(sets, "pages/INDEX.json"),
+                "{\"name\":\"INDEX\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"# 甲\"}}}");
+        SiteBuilder.build(sets, out, new File("src/assets"));
+        assertTrue(new File(out, "favicon/icon.ico").isFile(), "普通 favicon 照常复制");
+        assertFalse(new File(out, "favicon/.gitkeep").exists(), "点文件不进产物");
+    }
+
+    @Test
+    void addsCssKeepsWithinFileRepeats() throws Exception {
+        // 回归（2026-09 迁移真站点时抓到）：`.adds` 聚合的同一个 css 文件里，同名选择器分两次写必须都保留
+        // （真站点 .site-banner 基础样式在第一条、微调在第二条，曾被整块删掉 → 横幅失去居中与底色）
+        File sets = tmp.resolve("sets").toFile();
+        File out = tmp.resolve("output").toFile();
+        write(new File(sets, "Environment.config"), "cname=example.com\n");
+        write(new File(sets, "divs/site/.adds"), "");
+        write(new File(sets, "divs/site/01-site.css"),
+                ".banner { display: flex; justify-content: center; }\n"
+                        + ".banner { position: relative; padding-right: 46px; }\n");
+        write(new File(sets, "divs/t/template.html"), "<div>{{content}}</div>");
+        write(new File(sets, "pages/INDEX.json"),
+                "{\"name\":\"INDEX\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"# 甲\"}}}");
+        SiteBuilder.build(sets, out, new File("src/assets"));
+        String css = Files.readString(new File(out, "assets/css/web_global.css").toPath());
+        assertTrue(css.contains("display: flex") || css.contains("display:flex"), css);
+        assertTrue(css.contains("justify-content: center") || css.contains("justify-content:center"), css);
+        assertTrue(css.contains("padding-right: 46px") || css.contains("padding-right:46px"), css);
+    }
+
+    @Test
     void divMdOptionsCascadeAndPrefixedIds() throws Exception {
         File sets = tmp.resolve("sets").toFile();
         File out = tmp.resolve("output").toFile();
         write(new File(sets, "Environment.config"), "cname=example.com\n");
         write(new File(sets, "divs/t/template.html"), "<section>{{content}}</section>{{footnotes}}");
         write(new File(sets, "pages/INDEX.json"),
-                "{\"name\":\"INDEX\",\"md-options\":{\"toc\":true}," +
+                "{\"name\":\"INDEX\",\"md\":{\"toc\":true}," +
                 "\"page\":{" +
-                "\"div-1\":{\"type\":\"t\",\"md-options\":{\"footnote-display\":\"inline\",\"toc\":false}," +
+                "\"div-1\":{\"type\":\"t\",\"md\":{\"footnote-display\":\"inline\",\"toc\":false}," +
                 "\"markdown\":\"# 甲\\n\\n## 小节甲\\n\\n注[^1]\\n\\n[^1]: 甲注\"}," +
                 "\"div-2\":{\"type\":\"t\",\"markdown\":\"# 乙\\n\\n## 小节乙\\n\\n注[^2]\\n\\n[^2]: 乙注\"}}}");
         SiteBuilder.build(sets, out, new File("src/assets"));
@@ -241,11 +280,11 @@ public class SiteBuilderTest {
         File out = tmp.resolve("output").toFile();
         write(new File(sets, "Environment.config"), "cname=example.com\n");
         write(new File(sets, "divs/t/template.html"), "<section>{{content}}</section>");
-        // 用 strict 独有的报错点（原生 HTML 行）验证 div 级 md-options 真的生效；
+        // 用 strict 独有的报错点（原生 HTML 行）验证 div 级 md 真的生效；
         // 0.3.1 起嵌套上限放宽到 8 层，不能再拿"3 层列表"当报错样本
         write(new File(sets, "pages/INDEX.json"),
                 "{\"name\":\"INDEX\",\"page\":{\"div-1\":{\"type\":\"t\"," +
-                "\"md-options\":{\"mode\":\"strict\"},\"markdown\":\"<div>原生 HTML</div>\\n\"}}}");
+                "\"md\":{\"mode\":\"strict\"},\"markdown\":\"<div>原生 HTML</div>\\n\"}}}");
         RuntimeException e = assertThrows(RuntimeException.class, () ->
                 SiteBuilder.build(sets, out, new File("src/assets")));
         assertTrue(e.getMessage().contains("strict 模式不支持 HTML"), e.getMessage());   // div 级 strict 真的生效

@@ -109,12 +109,18 @@ class SitePages {
 
         page.mdOptions = new LinkedHashMap<>();
         page.pageGlobalRefs.clear();
-        JsonNode mo = root.path("md-options");
+        page.themeClasses.clear();
+        page.mdCss = sb.mdCssDefault;                 // 站点级默认 → 页面 md.css → div md.css
+        page.mdWrap = sb.mdWrapDefault;
+        JsonNode mo = root.path("md");
         if (mo.isObject()) {
             Iterator<Map.Entry<String, JsonNode>> it = mo.fields();
             while (it.hasNext()) {
                 Map.Entry<String, JsonNode> e = it.next();
-                page.mdOptions.put(e.getKey(), e.getValue().asText());
+                String mk = e.getKey();
+                if (mk.equals("css")) { page.mdCss = e.getValue().asText(""); continue; }
+                if (mk.equals("wrap")) { page.mdWrap = e.getValue().asBoolean(true); continue; }
+                page.mdOptions.put(mk, e.getValue().asText());
             }
         }
 
@@ -203,7 +209,8 @@ class SitePages {
         if (hasPageCss) page.queueOwned(new File(sb.outputDir, pageFileCss), pageCssText, pageFileDepth);
 
         boolean themeActive = !root.path("theme").asText("").isEmpty();
-        String links = tags.buildLinks(root, hasMd[0], depth) + tags.pageCssTag(hasPageCss, p.index, name, depth);
+        String links = tags.buildLinks(root, hasMd[0], depth, page.themeClasses)
+                + tags.pageCssTag(hasPageCss, p.index, name, depth);
         String scripts = tags.buildScripts(root, depth, hasPageJs, themeActive, p.index, name);
 
         String base = sb.readPreset("page/BASE.html");
@@ -224,8 +231,12 @@ class SitePages {
     }
 
     void buildBareMd(SiteScan.Page p) {
-        page.mdOptions = Collections.emptyMap();   // 裸 md 无 json，全用默认
+        page.mdOptions = new LinkedHashMap<>();    // 裸 md 无 json，全用默认
         page.pageGlobalRefs.clear();
+        page.themeClasses.clear();
+        page.mdCss = sb.mdCssDefault;
+        page.mdWrap = sb.mdWrapDefault;
+        page.mdOptions.put("wrap", String.valueOf(page.mdWrap));
         // 裸页不注入引擎资源（性能优先：省流量）；渲染仍走默认 hljs 链（纯转义，与 v1 输出一致）
         page.engineChain = EngineRegistry.resolve(List.of("hljs"), sb::warn);
         page.engineAssets = List.of();
@@ -242,7 +253,7 @@ class SitePages {
         try {
             long tm = System.nanoTime();
             MarkdownRenderer.MdResult mr = MarkdownRenderer.renderParts(sb.readFile(p.file),
-                    "pages/" + p.rel + p.name + ".md", Collections.emptyMap());
+                    "pages/" + p.rel + p.name + ".md", page.mdOptions);
             sb.stats.nsMd.add(System.nanoTime() - tm);
             sb.stats.mdCalls.incrementAndGet();
             content = MarkdownRenderer.joinResult(mr);
@@ -257,15 +268,17 @@ class SitePages {
             return;
         }
         String base = sb.readPreset("page/BASE.html");
-        sb.refPreset("md/css/md.css");
+        String themeCls = sb.refTheme(page.mdCss);       // 裸页没有 div 可挂类 → 挂到 <html>
+        if (themeCls != null) page.themeClasses.add(themeCls);
         page.resolveCalloutFiles("zh-CN");   // 裸 md 页无 json，lang 与 BASE 模板一致取默认 zh-CN
-        String links = "  <link rel=\"stylesheet\" href=\"" + SiteBuilder.depthPrefix(depth) + "assets/pre/md/css/md.css\">\n"
+        String links = (themeCls == null ? "" : "  <link rel=\"stylesheet\" href=\""
+                    + SiteBuilder.depthPrefix(depth) + "assets/css/" + themeCls + ".css\">\n")
                 + tags.calloutBaseLink(depth)
                 + "{{WEBGLOBAL_CSS:" + depth + "}}"
                 + tags.calloutOverrideLink(depth);
         String scripts = "{{WEBGLOBAL_JS:" + depth + "}}";
         base = base.replace("{{lang}}", "zh-CN")
-                   .replace("{{htmlattrs}}", "")
+                   .replace("{{htmlattrs}}", themeCls == null ? "" : " class=\"" + themeCls + "\"")
                    .replace("{{title}}", MarkdownRenderer.escapeHtml(p.name))
                    .replace("{{description}}", "")
                    .replace("{{favicon}}", "")
@@ -302,11 +315,40 @@ class SitePages {
         if (info == null) sb.errors.add(pageSrc + " 的 div 类型不存在: " + type + "（sets/divs 与 src/assets/divs 均未找到）");
         else sb.checkContract(info);
 
+        // md 配置（div `md` > 页面 `md` > Environment.config > 内置默认）；主题类必须在包装标签输出前算好
+        Map<String, String> mdOpts = inheritedMd;
+        String divTheme = null;                      // null = 继承页面级
+        Boolean divWrap = null;
+        JsonNode mdNode = div.get("md");
+        if (mdNode != null && mdNode.isObject()) {
+            Map<String, String> over = new LinkedHashMap<>();
+            Iterator<Map.Entry<String, JsonNode>> mit = mdNode.fields();
+            while (mit.hasNext()) {
+                Map.Entry<String, JsonNode> me = mit.next();
+                String mk = me.getKey();
+                if (mk.equals("css")) divTheme = me.getValue().asText("");
+                else if (mk.equals("wrap")) divWrap = me.getValue().asBoolean(true);
+                else over.put(mk, me.getValue().asText());
+            }
+            if (!over.isEmpty()) { mdOpts = new LinkedHashMap<>(inheritedMd); mdOpts.putAll(over); }
+        }
+        String themeSpec = divTheme != null ? divTheme : page.mdCss;
+        boolean mdWrapHere = divWrap != null ? divWrap : page.mdWrap;
+        // 只有"真的会产出 md 结构"的 div 才登记主题：带 markdown 的 div，以及 md-csr（内容在客户端渲染）
+        boolean rendersMd = div.has("markdown") || type.equals("md-csr") || type.endsWith("/md-csr");
+        String themeCls = rendersMd ? sb.refTheme(themeSpec) : null;
+        if (themeCls != null) page.themeClasses.add(themeCls);
+        if (rendersMd) {
+            mdOpts = new LinkedHashMap<>(mdOpts);
+            mdOpts.put("wrap", String.valueOf(mdWrapHere));
+        }
+
         JsonNode attrs = div.get("attrs");
         String extraCls = (attrs != null && attrs.isObject() && attrs.has("class")) ? attrs.get("class").asText() : "";
         StringBuilder sb2 = new StringBuilder();
         sb2.append("<div id=\"").append(id).append("\" class=\"ssvul-").append(type.replace('/', '-'));
         if (!extraCls.isEmpty()) sb2.append(' ').append(extraCls);
+        if (themeCls != null) sb2.append(' ').append(themeCls);       // md 主题作用域类（一律挂，见 tech.md）
         sb2.append('"');
         html.appendAttrs(sb2, attrs);
         html.appendDataAttrs(sb2, div.get("params"));
@@ -324,17 +366,6 @@ class SitePages {
         String listItems = null;
         if (type.equals("list")) listItems = list.listHandle(div, sb2, pageSrc, listClient);
 
-        // div 级 md-options：级联覆盖（只覆盖本 div 写出的键，其余继承页面级/父 div）
-        Map<String, String> mdOpts = inheritedMd;
-        JsonNode mo = div.get("md-options");
-        if (mo != null && mo.isObject()) {
-            mdOpts = new LinkedHashMap<>(inheritedMd);
-            Iterator<Map.Entry<String, JsonNode>> mit = mo.fields();
-            while (mit.hasNext()) {
-                Map.Entry<String, JsonNode> me = mit.next();
-                mdOpts.put(me.getKey(), me.getValue().asText());
-            }
-        }
 
         boolean hasTemplate = info != null && info.template != null;
         String content = null;

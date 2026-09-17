@@ -23,6 +23,13 @@ public final class JsMinifierRegistry {
 
     static {
         register(new SimpleJsMinifier());
+        // Closure 是**可选**的（反射桥，零编译期依赖）：类不在 classpath 就不注册 → get("closure") 自动回落 simple。
+        // 这样"零依赖自研可控"不被破坏，愿意用的人把 closure-compiler-v<日期>.jar 放进 classpath 即可。
+        try {
+            if (ClosureJsMinifier.available()) register(new ClosureJsMinifier());
+        } catch (Throwable ignored) {
+            // 桥自身出错也只当"没有这个引擎"
+        }
     }
 
     private JsMinifierRegistry() {}

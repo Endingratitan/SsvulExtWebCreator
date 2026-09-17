@@ -3,6 +3,48 @@
 > 这里只记录**会影响站点作者**的变更：改名的键/参数/div 类型、被移除的能力、不兼容的默认值或产物路径。
 > 每条给出：**变更 → 旧写法为什么不生效 → 迁移写法**。日常修复、内部重构与踩坑记录见 `tech.md`（不入库）。
 
+## 0.4.2（2026-09）：md 主题改革 + 两个既有 bug 修复
+
+> 一句话：**md 文件只提供文本数据，呈现关联交给 div**；md 主题注入一律"注册类 + 作用域化"。
+> 渲染逻辑（解析/净化/锚点/脚注/高亮/白名单）没动。
+
+### 破坏性变更（站点作者需要改的地方）
+
+1. **`md-options` → `md`**：页面级与 div 级合并成同一个对象，就近覆盖（div > 页面 > `Environment.config` > 内置默认）。
+   - 旧写法 `"md-options": {"mode":"strict"}` → 新写法 `"md": {"mode":"strict"}`（4 个渲染选项名不变）。
+   - 页面级 `"md-css": "pre-assets/md/css/md.css"` → 新写法 `"md": {"css": "…"}`。
+2. **`md` 新增两个旋钮**：
+   - `css`：`default`（预设主题 `md/css/md.css`）／`none`（**不要**预设排版主题，样式全交给站点自己的 css）／`pre-assets/…`、`global/…`（指定主题文件）。
+   - `wrap`：`true`（默认，包 `<div class="md-body">`）／`false`（裸内容，外壳交给 div 模板）。
+3. **主题注入改为"作用域化副本"**：产物里**不再出现** `assets/pre/md/css/md.css`；改为
+   `assets/css/md-theme-<hash16>.css`，挂类在声明它的 div 包装元素上（`class="ssvul-<div名> md-theme-<hash16>"`）。
+   - 想引用/覆写主题样式：改用 `.md-theme-*` 之外的自有选择器，或把主题文件放进 `sets/global/` 用 `md.css` 指定（见下）。
+   - 类名由**归一化后的 spec 字符串**派生（路径 hash，非内容 hash）：改主题内容**不换类名/文件名** ⇒ 引用页 HTML 字节不变、增量只重写 1 个 css。
+4. **`Environment.config` 新增两个站点级默认**：`md-css=default|none|<spec>`、`md-wrap=1|0`（页面/div 可就近覆盖）。
+5. **`md-css` 的形态收窄**：`md.css` 只接受 `default` / `none` / `pre-assets/…` / `global/…`；
+   文档曾提到的 `bk/`（bucket 调用名）与 `http(s)://` **未实现**，远程主题请先落到 `sets/global/` 再用 `global/…` 引用。
+
+### 打包/发布修复（0.4.2 发布前实测抓到，影响所有用 jar 的人）
+
+7. **`gradlew jar` 在 Gradle 9 下直接失败**：`processResources` 的 `doLast` 用了 Gradle 9 已移除的
+   `destinationDirectory` 属性 ⇒ 版本文件改为独立生成任务（`genVersion`）+ `from(genVersion)` 进资源。
+8. **源码树里有一份历史遗留的 `src/main/resources/ssvul-version.txt`**（生成物误入源码）⇒ 与生成的那份重名
+   ⇒ `processResources` 报 duplicate 而失败。已删除（构建会自己生成；**提交时请带上这处删除**）。
+9. **`java -jar … init` 曾完全不可用**：`templates/site/.gitignore` 命中 Ant/Gradle 的**默认排除**
+   （`**/.gitignore`，`include '**'` 也绕不过），打不进 jar ⇒ init 抛"模板资源缺失"。
+   处置：模板改名 `gitignore.txt` 进包，`SiteInit` 写盘时按别名改回 `.gitignore`，并留兜底内容。
+
+10. **`sets/favicon/` 里的点文件不再被发布**：`init` 骨架自带 `favicon/.gitkeep`，此前会被原样复制进
+    `output/favicon/`。现在与 `data/`、`pages/` 口径一致——**点文件是项目管理用，不进产物**。
+
+### 顺带修掉的真 bug（也影响产物）
+
+6. **同一份 css 文件里的重复选择器不再被删除**：`CssDeduper` 原设计是"同选择器后到胜、前驱整块删除"
+   （为 div 继承链省流量），但它被套用到了**同一个文件内部** ⇒ 一个 css 文件里把同名选择器分两次写
+   （基础样式 + 后续微调，极其常见；真站点实测 32 个重复选择器）会**静默丢掉前一条**，
+   表现为字体/横幅/夜间模式大面积错乱。现在：**同文件内全保留，只有"后一个来源文件"才删前驱**
+   （div 继承链的既定语义不变，见 `docs/UserWrite/div-guide.md` §5）。
+
 ## 0.4.0（2026-09）
 
 > 本版主项是**并行渲染**，管线内部结构大改；按既定原则**不考虑向前兼容**（`SitePages`/`SiteTags` 的构造、
@@ -39,6 +81,11 @@
    **下一次构建是全量**（之后恢复正常加速）。该文件仍是本地状态、**不进 `output/`**、手改无害（下次构建重写）。
 3. **删除源文件现在能被检出**（此前无 git 仓库时 stat 检测器看不见删除，见 `docs/bugs/BUG-003`）。
 4. `spawn` 出来的检测遍历改为**单趟 + 按条目并行**：300 个源文件 `--detect` **762 ms → 53 ms**。
+5. **列表/搜索类页面现在会跟着一起更新**（修掉一个真 bug）：`build:page-index` 静态列表与 `ssvul:inline` 内联条目把**别的页**的
+   标题/日期写进了自己的 HTML，而页与页之间没有文件级依赖——此前增量构建不会重渲染它们（列表会一直拿着旧条目）。
+   现在"任何页面依赖变化 / 页集合变化"都会重算这些页。
+   另外：**只改文件 mtime（`touch`、`git checkout`、拷贝文件）不再"秒回"**——索引条目的日期由 mtime 派生，秒回会让它停在旧日期
+   而与全量构建不一致。两者都由门禁用例钉住（`IncrementalTest`）。
 
 **已知限制（都不是缺陷，是设计边界或"传递性文件"；详见 `docs/bugs/`）**
 
@@ -74,6 +121,16 @@
 **实测**（300 页合成站；本机 4 核 → auto = 3 线程）：页面相 **2182 ms → 634 ms（3.4×）**；
 整构建 **6.6 s → 3.7 s（−44%）**。11 页的示例站不触发并行，耗时不变。
 
+### 新增：可选压缩引擎 Closure（`minifier=closure`，**需自带 jar**）
+
+- `sets/Environment.config` 里写 `minifier=closure` 即切换；**默认仍是 `simple`**
+  （实测：Closure `SIMPLE_OPTIMIZATIONS` 相对内置 simple 再省 **11.9% 字节、但 gzip 只再省 4.2%**；耗时 60–90ms/唯一 bundle）。
+- 生成器**不打包** Closure（保持零依赖）：把 `closure-compiler-v<日期>.jar` 放进 classpath（或 fat jar 同目录的 `lib/`）即可用；
+  **没有它时自动回退 simple 并给一条警告**（不静默降级、也不会构建失败）。
+- 只提供 `SIMPLE_OPTIMIZATIONS`（`WHITESPACE_ONLY` 实测**不如**内置 simple，故不作推荐；`ADVANCED` 需要 externs → 见 `tech.md` 待办）；
+  `language_out` 固定 `ECMASCRIPT_NEXT`（不做 ES5 降级转译）；许可头保留；换 jar 版本会被记进依赖记录的 `config` 指纹。
+- 非破坏性：不写 `minifier` 时行为与之前**逐字节相同**（双参照 diff 0 行）。
+
 ### 行为变化：`palette-picker` 的全量主题 css 不再"泄漏"到其它页面
 
 - 旧实现里 `themePickerNeeded` 是**构建级共享字段、且每页不清零**：只要有一页（如 INDEX）用了 `palette-picker`，
@@ -90,7 +147,16 @@
 - 影响：`assets/data/search-index.json` 的**条目集合不变、顺序变**；`ssvul:list` 的 `build:page-index` 列表**不受影响**
   （它自己按日期倒序 + 同标题码点序排序）。这是可复现性改进，无需迁移。
 
+### 新增：仓库外运行 jar 时**自动解包内置预设**（打包拼图补齐）
+
+- 以前 `--assets` 默认是 `src/assets` —— 那是**仓库内**路径，所以 `java -jar ssvul-x.y.z.jar build` 在仓库外必然找不到预设（BASE.html/divs/md/lib 全缺）。
+- 现在解析顺序是：`--assets` 显式给 → 仓库内 `src/assets`（开发期行为**一字不变**）→ **解包 jar 内 `assets/**` 到 `<项目根>/.ssvul/assets-<生成器版本>/`**
+  （项目根 = `output/` 的父级，与 `.env` 同级）。首次几十 ms，之后带 `.complete` 标记复用；升级生成器自动用新目录；`--assets` 仍可覆盖。
+- 实测（手工组装的 fat jar、一个**没有 `src/assets`** 的干净目录）：`java -jar … build` 直接产出 120 个文件，
+  与"仓库内运行"的产物 **`diff -rq` = 0 行**；第二次运行幂等复用并走增量秒回。
+
 ### 其它
+
 
 - `schema()` 热路径不再"每页读一遍 `page.schema.json` + 算 SHA-256"（实测 300 页白付 **1647 ms**）。
   **代价：改了 `page.schema.json` 需要重启构建/预览**（每条构建命令本来就是新 JVM）。

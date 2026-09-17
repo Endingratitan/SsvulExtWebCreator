@@ -173,6 +173,10 @@ public final class GitProbe {
     public static long[] maybeGc(File repo, int mode, long lastGcAt, List<String> warnings) {
         if (mode == 0 || !isRepo(repo) || !available()) return null;
         long now = System.currentTimeMillis();
+        // 检测器用 `git status` 判变更，而 sets/.git 按设计**没有 HEAD 提交**（见 init 的注释）⇒ 真实索引一旦不同步，
+        // 所有文件都会被报成"新增/变更"，增量跳过与秒回全部失效（实测真站点每轮 62 个文件被判变更、页面永远全量）。
+        // 与 init 的基线口径一致：每轮把**真实索引**同步到工作区（内容快照仍走临时索引，互不影响）。
+        run(repo, TIMEOUT_MS, null, "git", "add", "-A");
         long age = lastGcAt <= 0 ? Long.MAX_VALUE : now - lastGcAt;
         if (age < GC_PROBE_AGE_MS) return null;
         long[] before = countObjects(repo);

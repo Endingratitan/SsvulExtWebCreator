@@ -78,6 +78,11 @@ public class SiteBuilder {
     private final Map<String, String> cssCache = new ConcurrentHashMap<>();    // 键 = 档位|css|内容哈希 → 去重+压缩结果
     private static final int CACHE_FILE_MAX = 512 * 1024;            // 单文件 ≤512KiB 才进缓存
     int cacheTotalMax = DotEnv.DEF_CACHE_LIMIT << 20;                // 总量上限（`.env` 的 cache-limit，MiB；0=关）
+    final SiteMdThemes mdThemes = new SiteMdThemes();          // md 主题注册表（spec→类名 / 作用域化缓存）
+    private final Set<String> themeSrcRecorded = java.util.concurrent.ConcurrentHashMap.newKeySet();  // 每 spec 只 stat/记源一次
+    private final Set<String> themeQueued = java.util.concurrent.ConcurrentHashMap.newKeySet();       // 每主题只入队一次
+    String mdCssDefault = "default";     // Environment.config: md-css（default | none | pre-assets/… | global/…）
+    boolean mdWrapDefault = true;        // Environment.config: md-wrap（0/false = 不包 <div class="md-body">）
     final Set<String> presetCopies = java.util.Collections.synchronizedSet(new LinkedHashSet<>());   // 被引用的 pre-assets 文件
     final Set<String> presetDirCopies = java.util.Collections.synchronizedSet(new LinkedHashSet<>()); // 连带复制的目录（如 katex fonts）
     final Map<String, SiteScan.DivInfo> divs = new LinkedHashMap<>();  // type -> div
@@ -95,7 +100,23 @@ public class SiteBuilder {
     volatile boolean searchNeeded;                                           // 任页用到 search div → 输出 search-index.json
     final Map<String, Boolean> listDirs = java.util.Collections.synchronizedMap(new LinkedHashMap<>());    // list 的 ssvul:shared 声明的 dir 集合（按目录分片发射）
     int minifyLevel = 2;                                       // -1 去重+注释保留 | 0 全关 | 1 去重不压缩 | 2 全开（默认）
-    String minifierName = "simple";                            // minifier 键（v3 预留 closure）
+    String minifierName = "simple";                            // minifier 键：simple（内置）/ closure（可选，需自带 jar）
+
+    /**
+     * **实际生效的压缩引擎指纹** —— 必须进 `configFp`：换引擎（或换 Closure jar 版本）会改变产物字节，
+     * 若不进指纹，E 会判定"没变"而跳过 → 产物停在旧的压缩结果（与"升级生成器版本"同一类坑）。
+     * 同时负责一条**教学警告**：写了 `minifier=closure` 但 classpath 里没有 Closure 时，明说"本次用 simple"。
+     */
+    private String minifierFingerprint() {
+        JsMinifier eff = JsMinifierRegistry.get(minifierName);
+        String effName = eff == null ? "simple" : eff.name();
+        if (minifierName != null && !minifierName.equals(effName)) {
+            warn("minifier=" + minifierName + " 不可用（classpath 里没有对应实现，如 closure-compiler-v<日期>.jar）"
+                    + " → 本次实际使用 " + effName + "（可用：" + JsMinifierRegistry.names() + "）");
+        }
+        if ("closure".equals(effName)) return "closure:" + io.github.endingratitan.WebMinify.js.ClosureJsMinifier.version();
+        return effName;
+    }
 
     SiteScan scan;   // divOf 供页面组装使用
     /** E 埋点：当前渲染线程正在渲染的那一页（只用于统计"每页依赖多少源键"；并行渲染天然一页一线程） */
@@ -235,7 +256,8 @@ public class SiteBuilder {
         stats.tEnv = ms(e0);       // .env + Environment.config + CNAME 入队（C：扫描相缺口归因）
         // E：配置指纹（生成器版本号 + Environment.config 原文）——"改了配置但源没变"必须全量
         File envCfg = new File(setsDir, "Environment.config");
-        inc.configFp = DepsManifest.recSha((SiteIncremental.generatorVersion() + "\u0000" + (envCfg.isFile() ? readFile(envCfg) : ""))
+        inc.configFp = DepsManifest.recSha((SiteIncremental.generatorVersion() + "\u0000" + (envCfg.isFile() ? readFile(envCfg) : "")
+                + "\u0000" + minifierFingerprint())
                 .getBytes(StandardCharsets.UTF_8));
         // E：**零变更秒回**（不扫描、不渲染、不写盘；只 stat 一遍产物）。任何一条不满足 → 走一般路径
         if (inc.fastPathOk()) {
@@ -451,6 +473,10 @@ public class SiteBuilder {
         categories = "1".equals(lastOf("categories"));
         readmeOn = "1".equals(lastOf("readme"));
         localFavicon = "1".equals(lastOf("local-favicon"));
+        String mdc = lastOf("md-css");
+        mdCssDefault = mdc.isEmpty() ? "default" : mdc;
+        String mdw = lastOf("md-wrap");
+        mdWrapDefault = !("0".equals(mdw) || "false".equalsIgnoreCase(mdw));
         offline = "1".equals(lastOf("offline"));
         String mv = lastOf("minify");
         minifyLevel = switch (mv) {
@@ -615,6 +641,62 @@ public class SiteBuilder {
         String rel = p.startsWith(base) ? p.substring(base.length()) : p;
         rel = rel.replace('\\', '/');
         return rel.startsWith("/") ? rel.substring(1) : rel;
+    }
+
+    /**
+     * md 主题：注册（类名）→ 每 spec 一次源记录 → 按页依赖归属 → 站点级作用域化产物入队（每主题一次）。
+     *
+     * 与 {@link #refPreset} 的区别：**不复制原始主题文件**（产物里只有作用域化副本），且 stat/读盘每 spec 只做一次
+     * ——WSL/9p 上一次 stat 约 1–2ms，若按"每页 × 每主题"，300 页站点会白付 0.3–0.6s。
+     * 返回 null：spec 为 none（正常）或非法（已报错）。
+     */
+    String refTheme(String rawSpec) {
+        String norm = SiteMdThemes.normalize(rawSpec);
+        if (norm == null) {
+            if (!SiteMdThemes.isNone(rawSpec)) errors.add("md 主题 spec 非法（不得为绝对路径或空）: " + rawSpec);
+            return null;
+        }
+        SiteMdThemes.Reg reg = mdThemes.register(norm);
+        if (reg.error() != null) errors.add(reg.error());
+        if (reg.cls() == null) return null;
+        File src = themeSource(norm);
+        if (src == null) return null;
+        if (themeSrcRecorded.add(norm)) {                       // 每 spec 一次 stat（不按页重复）
+            java.nio.file.attribute.BasicFileAttributes a = attrs(src);
+            if (a != null) recSource("assets:" + norm, a.size(), a.lastModifiedTime().toMillis(), null);
+        }
+        String rel = "assets/css/" + reg.cls() + ".css";
+        PageScope sc = CURRENT_SCOPE.get();                     // 按页归属（零 IO）
+        if (sc != null) {
+            sc.depKeys.add("assets:" + norm);
+            inc.refPresetOwner(norm, sc.identity());
+            addOwnerOut(sc.identity(), rel);                    // 跳过页重放时必须带上它（否则写集/自愈不一致）
+        }
+        if (themeQueued.add(reg.cls())) {                       // 文件本身每主题只入队一次（内容纯函数、可复现）
+            io.github.endingratitan.WebMinify.css.CssScoper.Scoped scoped = mdThemes.scoped(norm, readFile(src));
+            if (scoped == null) return null;
+            if (!scoped.balanced()) warn("md 主题 css 括号不平衡，已按作用域化结果输出: " + norm);
+            if (scoped.opaqueAtRules() > 0) warn("md 主题 css 含未识别 at-rule（整块原样保留）: " + norm);
+            queue.add(new Queued(new File(outputDir, "assets/css/" + reg.cls() + ".css"), scoped.css(), 2));
+        }
+        return reg.cls();
+    }
+
+    /** 主题来源：`pre-assets/<路径>`（预设目录）或 `global/<路径>`（sets/global，用户自带） */
+    private File themeSource(String norm) {
+        if (norm.startsWith("pre-assets/")) {
+            String suffix = norm.substring("pre-assets/".length());
+            File f = new File(presetDir, suffix);
+            if (!f.isFile()) { errors.add("md 主题文件不存在: src/assets/" + suffix); return null; }
+            return f;
+        }
+        if (norm.startsWith("global/")) {
+            File f = new File(setsDir, norm);
+            if (!f.isFile()) { errors.add("md 主题文件不存在: sets/" + norm); return null; }
+            return f;
+        }
+        errors.add("md 主题 spec 暂只支持 default / pre-assets/… / global/…: " + norm);
+        return null;
     }
 
     /** 单次 stat（拿不到就返回 null；调用方按"需要检查"处理） */

@@ -146,12 +146,14 @@ final class PageList {
                 sb.errors.add(pageSrc + " 的 list src 未知的构建期预设: " + raw + "（当前可用: build:page-index）");
                 return null;
             }
+            page.usesIndex = true;                                  // E：本页把全站索引烧进了 HTML（别的页变了要重渲染）
             return listItemsHtml(listEntries(dir, pattern, true), fields,
                     params != null ? params.path("empty").asText("") : "");
         }
         if (raw.startsWith("ssvul:")) {
             String preset = raw.substring("ssvul:".length());
             if (preset.equals("inline")) {
+                page.usesIndex = true;                          // E：内联条目 = 把索引烧进 HTML（同上）
                 // 构建期把条目内联进页面（零请求、file:// 可用、离线可用）；</script> 防注入转义
                 String json = listJson(listEntries(dir, pattern, true)).replace("<", "\\u003c");
                 out.append("<script type=\"application/json\" class=\"list-data\">").append(json).append("</script>\n");

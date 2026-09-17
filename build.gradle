@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'io.github.endingratitan.SsvulExtWebCreator'
-version = '0.4.1'
+version = '0.4.2'
 
 application {
     mainClass = 'io.github.endingratitan.SsvulExtWebCreator.Main'
@@ -12,12 +12,28 @@ application {
 
 // 构建版本注入 ssvul-version.txt（version 子命令读取；jar/action/tag 三处同版本）
 // page.schema.json 从仓库根复制进资源（R11：运行时 classpath 优先，jar 到哪都能校验）
+// src/assets 全量进 jar 资源（**打包拼图的最后一块**：仓库外 `java -jar` 时由 PresetAssets 解包到
+//   <项目根>/.ssvul/assets-<版本>/ 当 presetDir 用；不这么做 jar 用户必然找不到预设）
+// 版本文件改为独立生成任务（Gradle 9 起 ProcessResources 不再暴露 destinationDirectory 属性；
+// 之前那种在 doLast 里写目标目录的写法会让 `gradlew jar` 直接失败）
+def versionOut = layout.buildDirectory.dir('generated/ssvul-version')
+def genVersion = tasks.register('genVersion') {
+    def dir = versionOut
+    def v = version
+    outputs.dir(dir)
+    doLast {
+        def f = dir.get().file('ssvul-version.txt').asFile
+        f.parentFile.mkdirs()
+        f.text = v
+    }
+}
+
 processResources {
     from('page.schema.json') { into '' }
-    doLast {
-        def vf = new File(destinationDirectory.get().asFile, 'ssvul-version.txt')
-        vf.text = version
-    }
+    from('src/assets') { into 'assets' }
+    from(genVersion)
+    // 注意：`.gitignore` 命中 Ant/Gradle 的**默认排除**（`**/.gitignore`），`include '**'` 也绕不过去
+    // → init 骨架里那份模板存成 `gitignore.txt`，由 SiteInit 写盘时改名回 `.gitignore`（见 SiteInit.RESOURCE_ALIAS）
 }
 
 // fat-jar（零第三方插件）：依赖解包进 jar，resources 自动携带（init 模板）

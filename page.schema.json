@@ -30,18 +30,14 @@
       "type": "string",
       "description": "初始主题名（如 light/dark）；生成 data-theme 属性 + 防闪烁内联脚本，并自动引用 pre-assets/md/js/md-theme.js 预设"
     },
-    "md-css": {
-      "type": "string",
-      "description": "md 主题 css（pre-assets/、bk/、http(s):// 形态）；缺省用预设 pre-assets/md/css/md.css；页面无 md 内容时忽略"
-    },
     "md-js": {
       "type": "array",
       "description": "md 增强 js 列表（pre-assets/ 或 http(s)://），顺序保序；仅页面含 md 内容时注入",
       "items": { "type": "string" }
     },
-    "md-options": {
+    "md": {
       "$ref": "#/definitions/mdOptions",
-      "description": "页面级 md 渲染选项（全部有默认值，可不写整个键或任一子键）"
+      "description": "md 渲染与主题（页面级默认）：css=主题（default|none|pre-assets/…|global/…）、wrap=是否包 <div class=\"md-body\">、其余为渲染选项；div 级同构且就近覆盖"
     },
     "engine": {
       "anyOf": [
@@ -77,7 +73,9 @@
         "mode": { "type": "string", "enum": ["simple", "strict"], "description": "simple=GitHub 兼容（默认）；strict=严格报错" },
         "footnote-display": { "type": "string", "enum": ["end", "inline"], "description": "end=脚注统一放（文末或 {{footnotes}} 占位符，默认）；inline=就地显示在定义处" },
         "toc": { "type": "boolean", "description": "构建期生成目录（md-body 顶部；h2~h6 入目录，h1 排除；默认 false）" },
-        "callout-title": { "type": "string", "enum": ["default", "none"], "description": "callout（> [!TYPE]）标题：default=注入内置默认标签/扩展类型首字母大写（默认）；none=不出默认标题元素（作者自定义标题仍生效）" }
+        "callout-title": { "type": "string", "enum": ["default", "none"], "description": "callout（> [!TYPE]）标题：default=注入内置默认标签/扩展类型首字母大写（默认）；none=不出默认标题元素（作者自定义标题仍生效）" },
+        "css": { "type": "string", "description": "md 主题 css：default=预设主题（pre-assets/md/css/md.css）；none=不要主题（站点自带设计系统时用）；或 pre-assets/… / global/… 指定主题文件。注入时统一作用域化到 md-theme-<hash> 类，只作用于声明它的 div" },
+        "wrap": { "type": "boolean", "description": "是否用 <div class=\"md-body\"> 包住渲染结果（默认 true）；false=裸内容，外壳交给 div 模板" }
       }
     },
     "dep": {
@@ -118,9 +116,9 @@
           "type": "string",
           "description": "内联 md 文本；或以 @ 开头引用 md 文件（@pages/...、@data/...）。转 html 后注入模板 {{content}} 处。md 内链接/图片白名单：http(s)://、bk/、pre-assets/、@data/、@page/（站内互链）、#锚点"
         },
-        "md-options": {
+        "md": {
           "$ref": "#/definitions/mdOptions",
-          "description": "本 div 的 md 渲染选项（可选）：级联覆盖页面级/父 div 的同名键，只作用于本 div 的 markdown；标题锚点 id 自动加本 div-ID 前缀（如 div-1-s1）"
+          "description": "本 div 的 md 渲染与主题（可选）：就近覆盖页面级同名键，只作用于本 div 的 markdown；css=本 div 主题、wrap=是否包 md-body；标题锚点 id 自动加本 div-ID 前缀（如 div-1-s1）"
         },
         "attrs": {
           "type": "object",

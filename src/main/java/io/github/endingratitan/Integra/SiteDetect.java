@@ -48,6 +48,18 @@ final class SiteDetect {
     Boolean gitInitForced;                             // --git-init 0/1：覆盖"仅标准布局自动建库"（null = 未指定）
     boolean gitRepo;                                   // 本次是否可用 git 检测（init/护栏/gc 之后的结果）
 
+    /**
+     * **只改了 mtime、内容一字没改**的源（哈希复核判为"其实没变"的那批）。
+     *
+     * 为什么必须单独记：索引条目的 `date` 由 `ymd(mtime)` 派生（`SiteScan.indexEntry`）——纯 `touch`/`git checkout`/
+     * 拷贝文件都不改内容，却会让**全量构建**产出不同的日期。所以只要有**页面文件**落进这一集合，就**不能走秒回**
+     * （实测复现：touch 到昨天 → 秒回 → `search-index.json` 仍是 09-15，而 `--rebuild` 是 09-14 ⇒ 增量 ≠ 全量）。
+     * 处置：不秒回、走一般路径重新索引；**页面本身仍会跳过**（它们的依赖没变）→ 只有索引 date 被刷新。
+     */
+    final Set<String> mtimeOnly = java.util.Collections.synchronizedSet(new LinkedHashSet<>());
+    /** `mtimeOnly` 里是否出现过**页面文件**（索引 `date` 的唯一来源）→ 决定能否秒回 */
+    volatile boolean pageMtimeOnly;
+
     /** ③ git：首次基线（init + add -A）→ 忽略护栏 → 仓库整理 → 变更清单（**按需**：普通构建零开销） */
     void loadGitState() {
         gitRepo = resolveRepo(true);
@@ -113,9 +125,23 @@ final class SiteDetect {
         for (String rel : ch.stagedOnly()) {
             if (sourceChanged(rel)) out.add(rel);
         }
-        for (String rel : out) {          // E：全新的非页面源文件 → 全量（与 stat 检测器同一条规则）
+        // git 检测器**不遍历**目录，stat 路径那套"惰性记源"（只被复制、从不被读取的文件：favicon/**、
+        // outer/** 镜像、data 里的 json、`.adds`/`.gitignore` 这类标记）在这里没人做 ⇒ 它们永远进不了基线
+        // ⇒ 每轮都被判"全新的非页面源文件"⇒ **永久全量**（实测真站点 18 个；往 sets/outer/ 加张图也会）。
+        // 这里直接把"本轮看到过、但基线里没有"的文件按当前 stat 写进基线：本轮仍按变更处理（保守），下一轮起干净。
+        String firstNew = null;
+        for (String rel : out) {
             if (rel.startsWith("pages/")) continue;
-            if (!sb.manifest.sources.containsKey("sets:" + rel)) { sb.inc.forceFull = true; break; }
+            String key = "sets:" + rel;
+            if (sb.manifest.sources.containsKey(key)) continue;
+            java.nio.file.attribute.BasicFileAttributes a = SiteBuilder.attrs(new File(sb.setsDir, rel));
+            if (a == null || !a.isRegularFile()) continue;   // 已删除/非普通文件：没有"新内容"信号，不该全量
+            sb.recSource(key, a.size(), a.lastModifiedTime().toMillis());
+            if (firstNew == null) firstNew = rel;
+        }
+        if (firstNew != null) {
+            sb.inc.forceFull = true;
+            sb.warn("全新的非页面源文件（首次出现会全量渲染一次，之后进基线）: " + firstNew);
         }
         changedFiles = out;
         detectorUsed = "git";
@@ -137,7 +163,10 @@ final class SiteDetect {
             String sha = sha256File(new File(sb.setsDir, rel));
             if (sha != null && sha.equals(r.sha)) {
                 sb.stats.hashVerifiedSkips++;
-                return false;                       // 内容没变（典型：纯 touch）→ 不算变更
+                // 内容没变（典型：纯 touch）→ 不算变更；但要记进 `mtimeOnly`：索引 date 由 mtime 派生
+                mtimeOnly.add(rel);
+                if (rel.startsWith("pages/")) pageMtimeOnly = true;
+                return false;
             }
         }
         return true;

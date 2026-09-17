@@ -38,7 +38,10 @@ final class PageScope {
     final SiteScan.Page page;          // 源页（json / 裸 md / raw 目录）
 
     // ---- 页内标量 ----
-    Map<String, String> mdOptions = new LinkedHashMap<>();   // 本页 md-options（div 级级联后的有效值）
+    Map<String, String> mdOptions = new LinkedHashMap<>();   // 本页 md 渲染选项（`md` 对象里的键，div 级级联后的有效值）
+    String mdCss = "default";                                // 本页 md 主题（页面 `md.css` → 默认取 Environment.config）
+    boolean mdWrap = true;                                   // 本页 md 包装（页面 `md.wrap` → 默认取 Environment.config）
+    final Set<String> themeClasses = new LinkedHashSet<>();   // 本页要注入的 md 主题类（插入序 = 页内首次出现序，确定性）   // 本页 md-options（div 级级联后的有效值）
     EngineChain engineChain;                                  // 本页引擎链
     List<String> engineAssets = List.of();                    // 本页要注入的引擎自动资源（门控后）
     boolean hasCode;
@@ -53,6 +56,13 @@ final class PageScope {
     boolean offlineListWarned;                                // 列目录预设的 offline 警告每页只发一次（R16）
     int depth;                                                // 当前页深度（data-depth）
     boolean searchNeeded;                                     // 本页用到 search div（E：跳过页要恢复自己那份贡献）
+    /**
+     * 本页把**全站索引烧进了 HTML**（`build:page-index` 静态列表 / `ssvul:inline` 内联条目）。
+     * 这类页的产物依赖**别的页**（条目的 title/excerpt/date），而页与页之间没有文件级依赖 →
+     * E 必须靠 `SiteIncremental.indexTouched`（任何"页面依赖"变化）强制它们重渲染，
+     * 否则列表页会拿着旧条目（实测：改一个被列出的页 → 列表页与 INDEX 都没重渲染 ⇒ 增量 ≠ 全量）。
+     */
+    boolean usesIndex;
     final Set<String> listDirs = new LinkedHashSet<>();        // 本页声明的 list 分片目录（同上）
 
     // ---- 页内集合 ----

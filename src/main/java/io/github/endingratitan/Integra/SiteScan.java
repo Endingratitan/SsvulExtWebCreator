@@ -403,7 +403,10 @@ class SiteScan {
         File root = new File(sb.setsDir, "favicon");
         if (!root.isDirectory()) return;
         for (File f : SiteBuilder.sortedFiles(root)) {
-            if (f.isFile()) sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "favicon/" + f.getName()), f));
+            // 点文件是项目管理用的（`.gitkeep`/`.DS_Store`…），不进产物——与 scanData/scanPages 口径一致
+            if (f.isFile() && !f.getName().startsWith(".")) {
+                sb.queue.add(new SiteBuilder.Queued(new File(sb.outputDir, "favicon/" + f.getName()), f));
+            }
         }
     }
 

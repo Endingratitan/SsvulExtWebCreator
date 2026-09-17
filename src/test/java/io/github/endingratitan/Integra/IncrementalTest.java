@@ -49,8 +49,10 @@ public class IncrementalTest {
         }
         write(new File(sets, "data/inc.md"), "# 引用文\n\n正文\n");
         write(new File(sets, "data/other.json"), "{\"k\":1}\n");
+        // p0 = **列表页**：`build:page-index` 会把全站索引（条目的 title/date）烧进 HTML —— E 的 `indexTouched` 就是为它准备的
         write(new File(sets, "pages/p0.json"),
-                "{\"name\":\"p0\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"@data/inc.md\"}}}");
+                "{\"name\":\"p0\",\"title\":\"首页\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"@data/inc.md\"},"
+                        + "\"div-2\":{\"type\":\"list\",\"params\":{\"dir\":\"pages\",\"pattern\":\"*.json\"}}}}");
         for (int i = 1; i <= 3; i++) {
             write(new File(sets, "pages/p" + i + ".json"),
                     "{\"name\":\"p" + i + "\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"# 页 " + i + "\\n\"}}}");
@@ -132,15 +134,49 @@ public class IncrementalTest {
     }
 
     @Test
-    void touchOnlyDoesNoWork() throws Exception {
+    void sameDayTouchOnlyRerendersIndexPages() throws Exception {
         File[] s = first();
-        File page = new File(s[0], "pages/p1.json");          // 只动 mtime，内容一字不改
+        File page = new File(s[0], "pages/p1.json");          // 只动 mtime（同一天），内容一字不改
         Files.setLastModifiedTime(page.toPath(),
                 java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() + 5000));
         BuildReport inc = build(s);
-        assertEquals(0, rendered(inc), "纯 touch 经内容哈希复核应判为未变");
-        assertEquals(0, inc.stats().filesWritten, "不该写任何产物");
+        assertTrue(inc.ok(), String.join("\n", inc.errors()));
         assertTrue(inc.stats().hashVerifiedSkips > 0, "应记录到一次哈希复核跳过");
+        assertEquals(0, inc.stats().filesWritten, "同一天 touch：产物字节不变 → 不该写盘");
+        assertEquals(1, rendered(inc), "但列表页要重画一遍（页面 mtime 变了，索引条目可能受影响，保守处理）");
+    }
+
+    /**
+     * 列表页（`build:page-index`）把**全站索引**烧进 HTML —— 改一个**被列出的页**必须让它也重渲染，
+     * 否则列表拿着旧标题（页与页之间没有文件级依赖，E 靠 `indexTouched` 判）。
+     * 实测踩过：这曾让「增量 ≠ 全量」（`blog-list` 与 `INDEX` 不更新）。
+     */
+    @Test
+    void listedPageChangeRerendersTheListPage() throws Exception {
+        File[] s = first();
+        write(new File(s[0], "pages/p1.json"),
+                "{\"name\":\"p1\",\"title\":\"ETEST-TITLE\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"# 页 1\\n\"}}}");
+        BuildReport inc = build(s);
+        assertTrue(inc.ok(), String.join("\n", inc.errors()));
+        assertEquals(2, rendered(inc), "改的那一页 + 列表页（它内嵌索引）");
+        assertEquals(3, skipped(inc));
+        assertTrue(Files.readString(new File(s[1], "pages/p0/index.html").toPath()).contains("ETEST-TITLE"),
+                "列表页必须反映出被列出页的新标题");
+        assertSameAsFull(s, inc, "full-list");
+    }
+
+    /** 跨天 touch：页面内容没变 → 页面本身不重渲染；但条目 `date` 变了 → 列表页必须重画并重写产物 */
+    @Test
+    void crossDayTouchUpdatesEntryDateInTheList() throws Exception {
+        File[] s = first();
+        Files.setLastModifiedTime(new File(s[0], "pages/p1.json").toPath(),
+                java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() - 86_400_000L));   // 昨天
+        BuildReport inc = build(s);
+        assertTrue(inc.ok(), String.join("\n", inc.errors()));
+        assertEquals(1, rendered(inc), "只有列表页要重画（被 touch 的页内容没变）");
+        assertEquals(4, skipped(inc));
+        assertEquals(1, inc.stats().filesWritten, "条目日期变了 → 列表页产物必须重写");
+        assertSameAsFull(s, inc, "full-touch-date");
     }
 
     @Test
@@ -150,9 +186,11 @@ public class IncrementalTest {
                 "{\"name\":\"p5\",\"page\":{\"div-1\":{\"type\":\"t\",\"markdown\":\"# 新页\\n\"}}}");
         BuildReport inc = build(s);
         assertTrue(inc.ok(), String.join("\n", inc.errors()));
-        assertEquals(1, rendered(inc), "只有新页该渲染");
-        assertEquals(5, skipped(inc));
+        assertEquals(2, rendered(inc), "新页 + 列表页（页集合变了，列表必须包含它）");
+        assertEquals(4, skipped(inc));
         assertTrue(new File(s[1], "pages/p5/index.html").isFile(), "新页产物必须出现");
+        assertTrue(Files.readString(new File(s[1], "pages/p0/index.html").toPath()).contains("pages/p5/"),
+                "列表页必须列出新页");
         assertSameAsFull(s, inc, "full-add");
     }
 
@@ -162,8 +200,10 @@ public class IncrementalTest {
         assertTrue(new File(s[0], "pages/p4.json").delete());
         BuildReport inc = build(s);
         assertTrue(inc.ok(), String.join("\n", inc.errors()));
-        assertEquals(0, rendered(inc), "其余页依赖未变 → 全跳过");
-        assertEquals(4, skipped(inc));
+        assertEquals(1, rendered(inc), "只剩列表页要重画（它必须不再列出被删的页）");
+        assertEquals(3, skipped(inc));
+        assertFalse(Files.readString(new File(s[1], "pages/p0/index.html").toPath()).contains("pages/p4/"),
+                "列表页不该再列出被删的页");
         assertTrue(inc.warnings().stream().anyMatch(w -> w.contains("已不再生成")),
                 "删页后必须给出孤儿警告: " + inc.warnings());
     }

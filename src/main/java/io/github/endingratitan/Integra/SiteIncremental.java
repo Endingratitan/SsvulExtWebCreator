@@ -66,6 +66,14 @@ final class SiteIncremental {
     boolean detected;
     /** `manifest.shared`（扫描相读取）里有变化 → 全量渲染（在 renderPages 开头算一次） */
     boolean sharedChanged;
+    /**
+     * **有页面依赖变了**（或页集合变了 / 页面文件只改了 mtime）→ 那些把全站索引烧进 HTML 的页
+     * （`build:page-index` / `ssvul:inline`，见 `PageRec.usesIndex`）必须重渲染，否则列表拿着旧条目。
+     * 实测踩到：改一个被列出的页 → 列表页与 INDEX 都没重渲染 ⇒ 增量 ≠ 全量（`IncrementalTest` 已钉住）。
+     */
+    boolean indexTouched;
+    /** `indexTouched` 是否已算过（惰性一次；见 `ensureIndexTouched`） */
+    private boolean indexTouchedComputed;
 
     /** 生成器版本（资源 `ssvul-version.txt`；手工编译/测试环境可能没有 → 空串） */
     static String generatorVersion() {
@@ -120,6 +128,10 @@ final class SiteIncremental {
         if (sb.rebuildAll || forceFull || !detected) return false;
         if (!sb.detect.changedFiles.isEmpty()) return false;
         if (!changedAssets.isEmpty()) return false;                // 预设侧有变更 → 走一般路径（精确到页）
+        // 有**页面文件**"只改了 mtime"（内容经哈希复核确认未变）→ 不能秒回：索引条目的 date 由 mtime 派生，
+        // 秒回会让它停在旧日期而全量构建给出新日期（实测复现 ⇒ 增量 ≠ 全量）。走一般路径重新索引即可，
+        // 页面依然会跳过（它们的依赖没变）。
+        if (sb.detect.pageMtimeOnly) return false;
         if (!configFp.equals(sb.manifest.config)) return false;    // 配置/版本变了 → 全量
         if (sb.manifest.pages.isEmpty()) return false;             // 无页记录（首次/旧版本/坏文件）→ 老路径
         if (!sb.outputDir.isDirectory()) return false;             // 产物目录被删 → 必须重建
@@ -134,10 +146,39 @@ final class SiteIncremental {
     /** 这一页能不能跳过（依赖未变 + config 未变 + 本页产物都还在） */
     boolean pageSkippable(DepsManifest.PageRec rec, boolean sharedChanged) {
         if (sb.rebuildAll || forceFull || sharedChanged) return false;
+        if (rec.usesIndex) {
+            ensureIndexTouched();
+            if (indexTouched) return false;                        // 索引类页面：别人变了我也得重画
+        }
         if (!configFp.equals(sb.manifest.config)) return false;
         for (String k : rec.deps) if (keyChanged(k)) return false;
         if (verifyLevel > 0) for (String o : rec.outs) if (!outputOk(o)) return false;
         return true;
+    }
+
+    /**
+     * 惰性算一次 `indexTouched`（第一次遇到"索引类页面"时）：
+     * ① 页集合变了（增/删页 → 条目集合变）；② **任何页面依赖**有变化（条目的 title/excerpt/text 可能变）；
+     * ③ 页面文件只改了 mtime（条目 `date` 变）。站内没有这类页时**零成本**直接返回。
+     */
+    private void ensureIndexTouched() {
+        if (indexTouchedComputed) return;
+        indexTouchedComputed = true;
+        boolean anyUser = false;
+        for (DepsManifest.PageRec r : sb.manifest.pages.values()) if (r.usesIndex) { anyUser = true; break; }
+        if (!anyUser) return;                                      // 旧记录里没有索引类页面（首次/新增）→ 本次必渲染
+        Set<String> live = new java.util.HashSet<>();
+        for (SiteScan.Page p : sb.pages) {
+            String id = identityOf(p);
+            if (id != null) live.add(id);
+        }
+        if (!live.equals(sb.manifest.pages.keySet())) { indexTouched = true; return; }
+        for (DepsManifest.PageRec r : sb.manifest.pages.values()) {
+            for (String k : r.deps) if (keyChanged(k)) { indexTouched = true; return; }
+        }
+        for (String rel : sb.detect.mtimeOnly) {
+            if (rel.startsWith("pages/")) { indexTouched = true; return; }
+        }
     }
 
     /** 跳过一页时的**副作用重放**：写集继承、预设重放、`@page/` 目标注册、页级全局标志恢复 */
@@ -210,6 +251,7 @@ final class SiteIncremental {
             Set<String> outs = outsByOwner.get(id);
             if (outs != null) rec.outs = new ArrayList<>(outs);
             rec.search = s.searchNeeded;
+            rec.usesIndex = s.usesIndex;
             rec.listDirs = new ArrayList<>(s.listDirs);
             sb.manifest.pages.put(id, rec);
         }

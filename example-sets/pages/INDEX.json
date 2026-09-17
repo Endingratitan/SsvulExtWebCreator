@@ -1,7 +1,7 @@
 {
   "name": "INDEX",
   "theme": "dark",
-  "md-options": {
+  "md": {
     "toc": true
   },
   "engine": "simple",
@@ -47,7 +47,7 @@
       "params": {
         "title": "div 级个性化"
       },
-      "md-options": {
+      "md": {
         "footnote-display": "inline"
       },
       "markdown": "# div 级个性化\n\n## 级联\n\n页面级 toc 被继承（本块也生成目录），脚注就地显示[^1]。\n\n[^1]: 就地注"

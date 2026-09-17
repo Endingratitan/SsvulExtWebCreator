@@ -17,6 +17,7 @@ import io.github.endingratitan.Preview.ReloadNotifier;
 import io.github.endingratitan.Preview.SourceWatcher;
 import io.github.endingratitan.Preview.WatchOptions;
 import io.github.endingratitan.Settings.DotEnv;
+import io.github.endingratitan.Settings.PresetAssets;
 
 import java.io.File;
 import java.io.IOException;
@@ -36,6 +37,22 @@ public class Main {
         if (code != 0) System.exit(code);
     }
 
+    /**
+     * **预设目录**解析顺序：`--assets` 显式给 → 仓库内 `src/assets`（开发/本机）→ **解包生成器内置资产**到
+     * `<项目根>/.ssvul/assets-<版本>/`（`java -jar` 用户；项目根 = output 的父级，与 `.env` 同级）。
+     * 这样"仓库外跑 jar"才能开箱可用，而开发期的行为一字不变；解包失败只警告（构建期会给出教学式报错）。
+     */
+    private static File resolveAssets(Cli cli, File output) {
+        if (cli.has("assets")) return new File(cli.opt("assets", "src/assets"));
+        File dev = new File("src/assets");
+        if (dev.isDirectory()) return dev;
+        File parent = output.getAbsoluteFile().getParentFile();
+        List<String> warns = new ArrayList<>();
+        File dir = PresetAssets.ensure(parent, PresetAssets.version(), warns);
+        for (String w : warns) IO.println("[构建警告] " + w);
+        return dir == null ? dev : dir;
+    }
+
     /** 可测入口（不退出 JVM）：解析错误 → 2，其余 → 0 */
     static int run(String[] args) {
         Cli cli;
@@ -49,7 +66,7 @@ public class Main {
             case "build" -> {
                 File sets = new File(cli.opt("sets", "sets"));
                 File output = new File(cli.opt("output", "output"));
-                File assets = new File(cli.opt("assets", "src/assets"));
+                File assets = resolveAssets(cli, output);
                 String detector = cli.opt("detector", null);
                 if (cli.flag("git")) detector = "git";          // --git 强制用 git（无仓库则回退 stat 并警告）
                 if (cli.flag("no-git")) detector = "stat";      // --no-git 强制 stat+哈希
@@ -89,7 +106,7 @@ public class Main {
             case "preview" -> {
                 File sets = new File(cli.opt("sets", "sets"));
                 File output = new File(cli.opt("output", "output"));
-                File assets = new File(cli.opt("assets", "src/assets"));
+                File assets = resolveAssets(cli, output);
                 File root = output.getAbsoluteFile().getParentFile();
                 List<String> pw = new ArrayList<>();
                 DotEnv env = DotEnv.load(root == null ? output : root, pw);   // ② CLI 没写的部分查 .env

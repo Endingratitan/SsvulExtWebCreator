@@ -79,11 +79,23 @@ public class WebMinifyDedupTest {
     }
 
     @Test
-    void cssDedupSameSelectorLastWins() {
+    void cssDedupKeepsWithinOneFileRepeats() {
+        // 回归（2026-09）：同一个 css 文件里同名选择器分两次写是正常写法
+        // （真站点 index.css 有 32 个重复选择器，曾被整块删除 → 字体/横幅/主题大面积错乱）
         String css = ".a { color: red; }\n.b { color: blue; }\n.a { color: green; }\n";
         String out = CssDeduper.dedup(css, false);
-        assertFalse(out.contains("red"), out);
+        assertTrue(out.contains("red"), out);
         assertTrue(out.contains("green"), out);
+        assertTrue(out.contains("blue"), out);
+    }
+
+    @Test
+    void cssDedupAcrossChunksLastWins() {
+        // div 继承链的既定语义：后一块（子 div）的同名选择器删掉前一块（父 div）的前驱
+        String a = ".a{color:red;margin:0}\n";
+        String b = ".a{color:blue}\n";
+        String out = CssDeduper.dedup(a + b, false, new int[]{0, a.length()});
+        assertFalse(out.contains("red"), out);
         assertTrue(out.contains("blue"), out);
     }
 
@@ -107,8 +119,11 @@ public class WebMinifyDedupTest {
     @Test
     void cssDedupKeepCommentsSurvivesMultipleCollisions() {
         // R6：-1 档（keep）曾拿输出偏移去 substring 输入原文 → 第二次冲突就 StringIndexOutOfBounds
-        String css = ".a{color:red}\n.b{x:1}\n.a{color:blue}\n.a{color:green}\n";
-        String out = CssDeduper.dedup(css, true);
+        // 跨块冲突（每块一条规则）才能触发覆盖删除
+        String c1 = ".a{color:red}\n", c2 = ".b{x:1}\n", c3 = ".a{color:blue}\n", c4 = ".a{color:green}\n";
+        String css = c1 + c2 + c3 + c4;
+        String out = CssDeduper.dedup(css, true,
+                new int[]{0, c1.length(), (c1 + c2).length(), (c1 + c2 + c3).length()});
         assertEquals(2, count(out, "ssvul-css-dedup: removed"), out);
         assertTrue(out.contains(".a{color:red}"), out);      // 注释里回插的是被删原文，不是错位片段
         assertTrue(out.contains(".a{color:blue}"), out);
@@ -118,8 +133,8 @@ public class WebMinifyDedupTest {
     @Test
     void cssBlocklessAtRuleDoesNotSwallowNextRule() {
         // R9：无块 at-rule 曾把紧随其后的一条规则吞进 at-rule 段 → 该规则不参与去重
-        String css = "@import \"x.css\";\n.a{color:red;margin:0}\n.a{color:blue}\n";
-        String out = CssDeduper.dedup(css, false);
+        String c1 = "@import \"x.css\";\n", c2 = ".a{color:red;margin:0}\n", c3 = ".a{color:blue}\n";
+        String out = CssDeduper.dedup(c1 + c2 + c3, false, new int[]{0, c1.length(), (c1 + c2).length()});
         assertTrue(out.contains("@import \"x.css\";"), out);
         assertEquals(1, count(out, ".a{"), out);             // 前驱被删（修复前两条都在）
         assertFalse(out.contains("margin:0"), out);          // 后到胜：同名前驱整块删除=既定特性（见 div-guide §5）
@@ -128,8 +143,8 @@ public class WebMinifyDedupTest {
     @Test
     void cssBlocklessAtRuleSkipsQuotedSemicolon() {
         // R9 后续：blockEnd 曾用裸 indexOf(';') → 引号内的 ; 会截断 at-rule 段，使其后规则不参与去重
-        String css = "@import url(\"a;b.css\");\n.a{color:red;margin:0}\n.a{color:blue}\n";
-        String out = CssDeduper.dedup(css, false);
+        String c1 = "@import url(\"a;b.css\");\n", c2 = ".a{color:red;margin:0}\n", c3 = ".a{color:blue}\n";
+        String out = CssDeduper.dedup(c1 + c2 + c3, false, new int[]{0, c1.length(), (c1 + c2).length()});
         assertTrue(out.contains("@import url(\"a;b.css\");"), out);
         assertEquals(1, count(out, ".a{"), out);
     }

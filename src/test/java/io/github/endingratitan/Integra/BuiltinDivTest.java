@@ -320,7 +320,9 @@ public class BuiltinDivTest {
         String html = Files.readString(new File(s[1], "pages/reader/index.html").toPath());
         assertTrue(html.contains("assets/pre/div-libs/md-csr/md-renderer.js"), html);
         assertTrue(html.contains("assets/pre/div-libs/md-csr/md-footnotes.js"), html);       // 10 个库文件都在
-        assertTrue(html.contains("assets/pre/md/css/md.css"), "无构建期 md 也要 md.css: " + html);
+        String themeCls = SiteMdThemes.classNameOf("pre-assets/md/css/md.css");
+        assertTrue(html.contains("assets/css/" + themeCls + ".css"), "md-csr 也要 md 主题（scoped 副本）: " + html);
+        assertTrue(html.contains(themeCls), "主题类要挂在 md-csr div 的包装元素上: " + html);
         assertTrue(html.contains("assets/pre/lib/hljs/hljs.min.js"), "代码块上色：hljs 自动注入");
         assertTrue(html.contains("assets/pre/lib/katex/katex.min.css"), "math=on → KaTeX css");
         assertTrue(html.contains("assets/pre/lib/katex/katex.min.js"), "math=on → KaTeX js");

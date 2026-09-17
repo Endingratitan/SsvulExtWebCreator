@@ -122,14 +122,18 @@ final class SiteAggregate {
             for (File f : d.css)
                 if (origins.add(f.getPath())) files.add(f);
         StringBuilder concat = new StringBuilder();
-        for (File f : files) concat.append(sb.readFile(f)).append('\n');
+        int[] chunkStarts = new int[files.size()];        // 去重按来源文件分块：同文件内的同名选择器都保留
+        for (int i = 0; i < files.size(); i++) {
+            chunkStarts[i] = concat.length();
+            concat.append(sb.readFile(files.get(i))).append('\n');
+        }
         String css = concat.toString();
         if (!dedupOn()) return css;
         // 结果缓存（键 = 档位|内容哈希）：多页共享同一 div 集合时只去重/压缩一次（P4）
         String key = sb.minifyLevel + "|css|" + DepsManifest.sha256(css.getBytes(StandardCharsets.UTF_8));
         String hit = cssCache.get(key);
         if (hit != null) { sb.stats.cssMinifyHits.incrementAndGet(); return hit; }
-        String out = CssDeduper.dedup(css, keepDedupComments());
+        String out = CssDeduper.dedup(css, keepDedupComments(), chunkStarts);
         if (compressOn()) out = CssMinifier.minify(out);
         sb.stats.cssMinifyCalls.incrementAndGet();
         cssCache.put(key, out);

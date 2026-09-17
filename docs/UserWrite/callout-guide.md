@@ -69,7 +69,7 @@
 
 ## 3. 标题开关
 
-页面 json 顶层或 div 条目里的 `md-options`（级联覆盖）：
+页面 json 顶层或 div 条目里的 `md` 对象（就近覆盖）：
 
 | 键 | 值 | 说明 |
 |---|---|---|
@@ -77,7 +77,7 @@
 | | `none` | 不出默认标题元素（**作者自定义标题仍生效**） |
 
 ```jsonc
-{ "type": "article", "md-options": { "callout-title": "none" }, "markdown": "> [!important]\n> 没有标题，只剩色块与图标" }
+{ "type": "article", "md": { "callout-title": "none" }, "markdown": "> [!important]\n> 没有标题，只剩色块与图标" }
 ```
 
 ## 4. 扩展与覆写：`sets/global/callout/`
